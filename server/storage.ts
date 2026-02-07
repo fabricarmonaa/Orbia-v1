@@ -4,7 +4,7 @@ import {
   plans, tenants, users, tenantConfig, branches,
   orderStatuses, orders, orderStatusHistory, orderComments,
   cashSessions, cashMovements, expenseCategories, fixedExpenses,
-  productCategories, products, sttLogs,
+  productCategories, products, sttLogs, superAdminConfig,
   tenantAddons, deliveryAgents, deliveryActionStates,
   deliveryRoutes, deliveryRouteStops, deliveryProofs,
   type InsertPlan, type Plan,
@@ -27,6 +27,7 @@ import {
   type InsertDeliveryRoute, type DeliveryRoute,
   type InsertDeliveryRouteStop, type DeliveryRouteStop,
   type InsertDeliveryProof, type DeliveryProof,
+  type InsertSuperAdminConfig, type SuperAdminConfig,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -156,6 +157,14 @@ export interface IStorage {
   getDeliveryOrders(tenantId: number): Promise<Order[]>;
   updateOrderDeliveryStatus(id: number, tenantId: number, status: string): Promise<void>;
   assignDeliveryAgent(orderId: number, tenantId: number, agentId: number): Promise<void>;
+
+  // Super Admin Config
+  getSuperAdminConfig(userId: number): Promise<SuperAdminConfig | undefined>;
+  upsertSuperAdminConfig(data: InsertSuperAdminConfig): Promise<SuperAdminConfig>;
+
+  // Tenant Subscription
+  updateTenantSubscription(tenantId: number, startDate: Date, endDate: Date): Promise<void>;
+  updateTenantActive(tenantId: number, isActive: boolean): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -742,6 +751,29 @@ export class DatabaseStorage implements IStorage {
       .update(orders)
       .set({ assignedAgentId: agentId, deliveryStatus: "assigned", updatedAt: new Date() })
       .where(and(eq(orders.id, orderId), eq(orders.tenantId, tenantId)));
+  }
+
+  // Super Admin Config
+  async getSuperAdminConfig(userId: number) {
+    const [config] = await db.select().from(superAdminConfig).where(eq(superAdminConfig.userId, userId));
+    return config;
+  }
+  async upsertSuperAdminConfig(data: InsertSuperAdminConfig) {
+    const existing = await this.getSuperAdminConfig(data.userId);
+    if (existing) {
+      const [updated] = await db.update(superAdminConfig).set(data).where(eq(superAdminConfig.userId, data.userId)).returning();
+      return updated;
+    }
+    const [created] = await db.insert(superAdminConfig).values(data).returning();
+    return created;
+  }
+
+  // Tenant Subscription
+  async updateTenantSubscription(tenantId: number, startDate: Date, endDate: Date) {
+    await db.update(tenants).set({ subscriptionStartDate: startDate, subscriptionEndDate: endDate }).where(eq(tenants.id, tenantId));
+  }
+  async updateTenantActive(tenantId: number, isActive: boolean) {
+    await db.update(tenants).set({ isActive }).where(eq(tenants.id, tenantId));
   }
 }
 

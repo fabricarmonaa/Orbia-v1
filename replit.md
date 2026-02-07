@@ -18,7 +18,7 @@ ORBIA is a multi-tenant SaaS platform for SMBs (PyMEs). It provides order manage
 ## Key Modules
 - **Orders**: CRUD + status management + comments + public tracking links + branch column display + delivery toggle
 - **Cash/Treasury**: Session open/close + income/expense movements
-- **Products**: CRUD + categories + cost/stock tracking + edit modal + activate/deactivate toggle + CSV export
+- **Products**: CRUD + categories + cost/stock tracking + edit modal + activate/deactivate toggle + PDF export
 - **Branches**: Multi-branch support per tenant + branch detail panel with filtered orders/cash
 - **Plans**: Feature flags + limits (ECONOMICO / PROFESIONAL / ESCALA)
 - **STT Voice Commands** (ESCALA plan only): Whisper transcription + GPT-4.1-mini intent extraction for orders, cash, and products
@@ -49,7 +49,16 @@ ORBIA is a multi-tenant SaaS platform for SMBs (PyMEs). It provides order manage
 - Frontend binds to port 5000
 - Database is PostgreSQL via DATABASE_URL
 
+## Profile & Customization
+- **Tenant Settings**: Logo upload (POST /api/config/logo), business description, tracking style editor
+- **Tracking Customization**: 4 layout presets (classic/cards/stepper/minimal), color pickers (primary/accent/bg), ToS text, live preview
+- **Owner Panel**: Avatar upload, tabs for tenant management vs subscription management
+- **Subscription System**: Start/end dates per tenant, 3-day grace period, 7-day warning, auto-block after grace, warning banner in tenant app
+- **File Uploads**: multer, tenant logos and owner avatars in /uploads/profiles/ (5MB), delivery photos in /uploads/delivery/ (10MB)
+- **PDF Export**: Products export as PDF via pdfkit (replaced CSV)
+
 ## Recent Changes
 - 2026-02-07: Initial MVP built - schema, frontend (all pages), backend (all endpoints), JWT auth, seed data
 - 2026-02-07: Added STT voice commands (ESCALA plan), product management enhancements (edit/toggle/CSV/cost/stock), branch detail panel with filtered data, orders show branch badges
 - 2026-02-07: Comprehensive Delivery addon module - agents CRUD, separate auth, routes/stops/actions, photo proofs, tenant-configurable action states, owner panel addon toggle, delivery agent login/panel pages
+- 2026-02-07: Profile customization (logos, avatars, business descriptions), tracking page theming (4 layouts, colors, ToS), subscription management with grace period/warnings, PDF product export

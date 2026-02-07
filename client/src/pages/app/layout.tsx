@@ -1,10 +1,11 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { fetchPlan, clearPlanCache } from "@/lib/plan";
 import { useLocation, Route, Switch } from "wouter";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { AlertTriangle, X } from "lucide-react";
 import Dashboard from "./dashboard";
 import OrdersPage from "./orders";
 import CashPage from "./cash";
@@ -13,6 +14,31 @@ import BranchesPage from "./branches";
 import BranchDetailPage from "./branch-detail";
 import DeliveryPage from "./delivery";
 import SettingsPage from "./settings";
+
+function SubscriptionBanner() {
+  const { user } = useAuth();
+  const [dismissed, setDismissed] = useState(false);
+
+  if (dismissed || !user) return null;
+
+  const warning = (user as any).subscriptionWarning as string | undefined;
+  if (!warning) return null;
+
+  const isGrace = warning.toLowerCase().includes("gracia") || warning.toLowerCase().includes("bloqueada");
+  const bgClass = isGrace
+    ? "bg-destructive/10 border-destructive/30 text-destructive"
+    : "bg-yellow-500/10 border-yellow-500/30 text-yellow-700 dark:text-yellow-400";
+
+  return (
+    <div className={`flex items-center gap-3 px-4 py-2 border-b ${bgClass}`} data-testid="banner-subscription-warning">
+      <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+      <p className="text-sm flex-1">{warning}</p>
+      <button onClick={() => setDismissed(true)} className="p-0.5 rounded" data-testid="button-dismiss-warning">
+        <X className="w-4 h-4" />
+      </button>
+    </div>
+  );
+}
 
 export default function AppLayout() {
   const { isAuthenticated, user } = useAuth();
@@ -43,6 +69,7 @@ export default function AppLayout() {
             <SidebarTrigger data-testid="button-sidebar-toggle" />
             <ThemeToggle />
           </header>
+          <SubscriptionBanner />
           <main className="flex-1 overflow-auto p-4 sm:p-6">
             <Switch>
               <Route path="/app/orders" component={OrdersPage} />

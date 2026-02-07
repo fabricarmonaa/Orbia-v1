@@ -28,7 +28,7 @@ export default function TenantLogin() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Error de autenticación");
-      login(data.token, data.user);
+      login(data.token, { ...data.user, subscriptionWarning: data.subscriptionWarning });
       setLocation("/app");
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });

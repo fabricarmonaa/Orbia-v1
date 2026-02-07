@@ -37,6 +37,8 @@ export const tenants = pgTable("tenants", {
   slug: varchar("slug", { length: 100 }).unique(),
   planId: integer("plan_id").references(() => plans.id),
   isActive: boolean("is_active").notNull().default(true),
+  subscriptionStartDate: timestamp("subscription_start_date"),
+  subscriptionEndDate: timestamp("subscription_end_date"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -81,9 +83,16 @@ export const tenantConfig = pgTable("tenant_config", {
     .unique(),
   businessName: varchar("business_name", { length: 200 }),
   businessType: varchar("business_type", { length: 100 }),
+  businessDescription: text("business_description"),
+  logoUrl: text("logo_url"),
   currency: varchar("currency", { length: 10 }).default("ARS"),
   trackingExpirationHours: integer("tracking_expiration_hours").default(24),
   language: varchar("language", { length: 10 }).default("es"),
+  trackingLayout: varchar("tracking_layout", { length: 50 }).default("classic"),
+  trackingPrimaryColor: varchar("tracking_primary_color", { length: 20 }).default("#6366f1"),
+  trackingAccentColor: varchar("tracking_accent_color", { length: 20 }).default("#8b5cf6"),
+  trackingBgColor: varchar("tracking_bg_color", { length: 20 }).default("#ffffff"),
+  trackingTosText: text("tracking_tos_text"),
   configJson: jsonb("config_json").default({}),
 });
 
@@ -550,6 +559,24 @@ export const insertDeliveryProofSchema = createInsertSchema(deliveryProofs).omit
 });
 export type InsertDeliveryProof = z.infer<typeof insertDeliveryProofSchema>;
 export type DeliveryProof = typeof deliveryProofs.$inferSelect;
+
+// ==================== SUPER ADMIN CONFIG ====================
+export const superAdminConfig = pgTable("super_admin_config", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id")
+    .references(() => users.id)
+    .notNull()
+    .unique(),
+  avatarUrl: text("avatar_url"),
+  brandName: varchar("brand_name", { length: 200 }).default("ORBIA"),
+  configJson: jsonb("config_json").default({}),
+});
+
+export const insertSuperAdminConfigSchema = createInsertSchema(superAdminConfig).omit({
+  id: true,
+});
+export type InsertSuperAdminConfig = z.infer<typeof insertSuperAdminConfigSchema>;
+export type SuperAdminConfig = typeof superAdminConfig.$inferSelect;
 
 // ==================== STT LOGS ====================
 export const sttLogs = pgTable(

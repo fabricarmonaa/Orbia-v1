@@ -8,6 +8,7 @@ export interface AuthUser {
   tenantId: number | null;
   isSuperAdmin: boolean;
   branchId: number | null;
+  subscriptionWarning?: string | null;
 }
 
 let currentUser: AuthUser | null = null;

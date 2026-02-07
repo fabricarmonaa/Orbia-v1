@@ -72,8 +72,22 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Código, email y contraseña requeridos" });
       }
       const tenant = await storage.getTenantByCode(tenantCode);
-      if (!tenant || !tenant.isActive) {
-        return res.status(401).json({ error: "Negocio no encontrado o inactivo" });
+      if (!tenant) {
+        return res.status(401).json({ error: "Negocio no encontrado" });
+      }
+      if (!tenant.isActive) {
+        return res.status(403).json({ error: "Cuenta bloqueada por falta de pago. Contacte al administrador.", code: "ACCOUNT_BLOCKED" });
+      }
+      if (tenant.subscriptionEndDate) {
+        const now = new Date();
+        const endDate = new Date(tenant.subscriptionEndDate);
+        const graceDays = 3;
+        const graceEnd = new Date(endDate);
+        graceEnd.setDate(graceEnd.getDate() + graceDays);
+        if (now > graceEnd) {
+          await storage.updateTenantActive(tenant.id, false);
+          return res.status(403).json({ error: "Cuenta bloqueada por falta de pago. Contacte al administrador.", code: "ACCOUNT_BLOCKED" });
+        }
       }
       const user = await storage.getUserByEmail(email, tenant.id);
       if (!user || !user.isActive) {
@@ -82,6 +96,28 @@ export async function registerRoutes(
       const valid = await comparePassword(password, user.password);
       if (!valid) {
         return res.status(401).json({ error: "Credenciales incorrectas" });
+      }
+      let subscriptionWarning: string | null = null;
+      if (tenant.subscriptionEndDate) {
+        const now = new Date();
+        const endDate = new Date(tenant.subscriptionEndDate);
+        if (now > endDate) {
+          const graceDays = 3;
+          const graceEnd = new Date(endDate);
+          graceEnd.setDate(graceEnd.getDate() + graceDays);
+          const msLeft = graceEnd.getTime() - now.getTime();
+          const hoursLeft = Math.max(0, Math.floor(msLeft / (1000 * 60 * 60)));
+          const daysLeft = Math.floor(hoursLeft / 24);
+          subscriptionWarning = daysLeft > 0
+            ? `Tu suscripción venció. Tenés ${daysLeft} día(s) y ${hoursLeft % 24}h para renovar antes de que se bloquee tu cuenta.`
+            : `Tu suscripción venció. Tenés ${hoursLeft}h para renovar antes de que se bloquee tu cuenta.`;
+        } else {
+          const msLeft = endDate.getTime() - now.getTime();
+          const daysLeft = Math.floor(msLeft / (1000 * 60 * 60 * 24));
+          if (daysLeft <= 7) {
+            subscriptionWarning = `Tu suscripción vence en ${daysLeft} día(s). Renová a tiempo para no perder acceso.`;
+          }
+        }
       }
       const token = generateToken({
         userId: user.id,
@@ -102,6 +138,7 @@ export async function registerRoutes(
           isSuperAdmin: false,
           branchId: user.branchId,
         },
+        subscriptionWarning,
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -710,25 +747,62 @@ Si no podés extraer algún campo, omitilo. Respondé SOLO con el JSON, sin text
       const allProducts = await storage.getProducts(tenantId);
       const categories = await storage.getProductCategories(tenantId);
       const catMap = new Map(categories.map((c) => [c.id, c.name]));
+      const config = await storage.getConfig(tenantId);
 
-      const csvHeader = "Nombre,Descripción,Precio,Costo,Stock,SKU,Categoría,Activo\n";
-      const csvRows = allProducts.map((p) => {
-        const catName = p.categoryId ? catMap.get(p.categoryId) || "" : "";
-        return [
-          `"${(p.name || "").replace(/"/g, '""')}"`,
-          `"${(p.description || "").replace(/"/g, '""')}"`,
-          p.price || "",
-          p.cost || "",
-          p.stock ?? "",
-          `"${(p.sku || "").replace(/"/g, '""')}"`,
-          `"${catName.replace(/"/g, '""')}"`,
-          p.isActive ? "Sí" : "No",
-        ].join(",");
+      const PDFDocument = (await import("pdfkit")).default;
+      const doc = new PDFDocument({ size: "A4", margin: 40 });
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", "attachment; filename=productos.pdf");
+      doc.pipe(res);
+
+      doc.fontSize(18).text(config?.businessName || "Productos", { align: "center" });
+      doc.fontSize(10).text(`Fecha: ${new Date().toLocaleDateString("es-AR")}`, { align: "center" });
+      doc.moveDown(1);
+
+      const headers = ["Nombre", "Precio", "Costo", "Stock", "SKU", "Categoría", "Activo"];
+      const colWidths = [140, 65, 65, 50, 70, 90, 45];
+      const tableLeft = 40;
+      let y = doc.y;
+
+      doc.fontSize(8).font("Helvetica-Bold");
+      let x = tableLeft;
+      headers.forEach((h, i) => {
+        doc.text(h, x, y, { width: colWidths[i], align: "left" });
+        x += colWidths[i];
       });
+      y += 16;
+      doc.moveTo(tableLeft, y).lineTo(tableLeft + colWidths.reduce((a, b) => a + b, 0), y).stroke();
+      y += 4;
 
-      res.setHeader("Content-Type", "text/csv; charset=utf-8");
-      res.setHeader("Content-Disposition", "attachment; filename=productos.csv");
-      res.send("\uFEFF" + csvHeader + csvRows.join("\n"));
+      doc.font("Helvetica").fontSize(7);
+      for (const p of allProducts) {
+        if (y > 750) {
+          doc.addPage();
+          y = 40;
+        }
+        const catName = p.categoryId ? catMap.get(p.categoryId) || "" : "";
+        const row = [
+          p.name || "",
+          p.price ? `$${p.price}` : "",
+          p.cost ? `$${p.cost}` : "",
+          p.stock?.toString() ?? "",
+          p.sku || "",
+          catName,
+          p.isActive ? "Si" : "No",
+        ];
+        x = tableLeft;
+        row.forEach((val, i) => {
+          doc.text(val, x, y, { width: colWidths[i], align: "left" });
+          x += colWidths[i];
+        });
+        y += 14;
+      }
+
+      doc.moveDown(2);
+      doc.fontSize(8).text(`Total: ${allProducts.length} productos`, { align: "right" });
+
+      doc.end();
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -808,6 +882,12 @@ Si no podés extraer algún campo, omitilo. Respondé SOLO con el JSON, sin text
             date: c.createdAt,
           })),
           businessName: config?.businessName || "",
+          logoUrl: config?.logoUrl || null,
+          trackingLayout: config?.trackingLayout || "classic",
+          trackingPrimaryColor: config?.trackingPrimaryColor || "#6366f1",
+          trackingAccentColor: config?.trackingAccentColor || "#8b5cf6",
+          trackingBgColor: config?.trackingBgColor || "#ffffff",
+          trackingTosText: config?.trackingTosText || null,
         },
       });
     } catch (err: any) {
@@ -840,6 +920,146 @@ Si no podés extraer algún campo, omitilo. Respondé SOLO con el JSON, sin text
         enabledAt: enabled ? new Date() : null,
       });
       res.json({ data: addon });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ==================== SUPER ADMIN: SUBSCRIPTION MANAGEMENT ====================
+
+  app.patch("/api/super/tenants/:tenantId/subscription", superAuth, async (req, res) => {
+    try {
+      const tenantId = parseInt(req.params.tenantId as string);
+      const { startDate, endDate } = req.body;
+      if (!startDate || !endDate) {
+        return res.status(400).json({ error: "startDate y endDate requeridos" });
+      }
+      await storage.updateTenantSubscription(tenantId, new Date(startDate), new Date(endDate));
+      await storage.updateTenantActive(tenantId, true);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.patch("/api/super/tenants/:tenantId/block", superAuth, async (req, res) => {
+    try {
+      const tenantId = parseInt(req.params.tenantId as string);
+      const { isActive } = req.body;
+      await storage.updateTenantActive(tenantId, isActive ?? false);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ==================== SUPER ADMIN: PROFILE CONFIG ====================
+
+  const profileUploadDir = path.join(process.cwd(), "uploads", "profiles");
+  if (!fs.existsSync(profileUploadDir)) {
+    fs.mkdirSync(profileUploadDir, { recursive: true });
+  }
+  const profileUpload = multer({
+    storage: multer.diskStorage({
+      destination: (_req, _file, cb) => cb(null, profileUploadDir),
+      filename: (_req, file, cb) => {
+        const uniqueName = `${Date.now()}-${randomUUID()}${path.extname(file.originalname)}`;
+        cb(null, uniqueName);
+      },
+    }),
+    limits: { fileSize: 5 * 1024 * 1024 },
+    fileFilter: (_req, file, cb) => {
+      const allowed = [".jpg", ".jpeg", ".png", ".webp"];
+      const ext = path.extname(file.originalname).toLowerCase();
+      cb(null, allowed.includes(ext));
+    },
+  });
+
+  const expressModule = await import("express");
+  app.use("/uploads/profiles", expressModule.default.static(profileUploadDir));
+
+  app.get("/api/super/config", superAuth, async (req, res) => {
+    try {
+      const config = await storage.getSuperAdminConfig(req.auth!.userId);
+      res.json({ data: config || null });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/super/config/avatar", superAuth, profileUpload.single("avatar"), async (req, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ error: "No se subió archivo" });
+      const avatarUrl = `/uploads/profiles/${req.file.filename}`;
+      const config = await storage.upsertSuperAdminConfig({
+        userId: req.auth!.userId,
+        avatarUrl,
+      });
+      res.json({ data: config });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ==================== TENANT: LOGO UPLOAD ====================
+
+  app.post("/api/config/logo", tenantAuth, profileUpload.single("logo"), async (req, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ error: "No se subió archivo" });
+      const logoUrl = `/uploads/profiles/${req.file.filename}`;
+      const config = await storage.upsertConfig({
+        tenantId: req.auth!.tenantId!,
+        logoUrl,
+      });
+      res.json({ data: config });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ==================== TENANT: SUBSCRIPTION STATUS ====================
+
+  app.get("/api/subscription/status", tenantAuth, async (req, res) => {
+    try {
+      const tenant = await storage.getTenantById(req.auth!.tenantId!);
+      if (!tenant) return res.status(404).json({ error: "Tenant no encontrado" });
+      let warning: string | null = null;
+      let status: "active" | "warning" | "grace" | "blocked" = "active";
+      if (tenant.subscriptionEndDate) {
+        const now = new Date();
+        const endDate = new Date(tenant.subscriptionEndDate);
+        const graceDays = 3;
+        const graceEnd = new Date(endDate);
+        graceEnd.setDate(graceEnd.getDate() + graceDays);
+        if (now > graceEnd) {
+          status = "blocked";
+          warning = "Cuenta bloqueada por falta de pago. Contacte al administrador.";
+        } else if (now > endDate) {
+          status = "grace";
+          const msLeft = graceEnd.getTime() - now.getTime();
+          const hoursLeft = Math.max(0, Math.floor(msLeft / (1000 * 60 * 60)));
+          const daysLeft = Math.floor(hoursLeft / 24);
+          warning = daysLeft > 0
+            ? `Tu suscripción venció. Tenés ${daysLeft} día(s) y ${hoursLeft % 24}h para renovar.`
+            : `Tu suscripción venció. Tenés ${hoursLeft}h para renovar.`;
+        } else {
+          const msLeft = endDate.getTime() - now.getTime();
+          const daysLeft = Math.floor(msLeft / (1000 * 60 * 60 * 24));
+          if (daysLeft <= 7) {
+            status = "warning";
+            warning = `Tu suscripción vence en ${daysLeft} día(s). Renová a tiempo.`;
+          }
+        }
+      }
+      res.json({
+        data: {
+          subscriptionStartDate: tenant.subscriptionStartDate,
+          subscriptionEndDate: tenant.subscriptionEndDate,
+          isActive: tenant.isActive,
+          status,
+          warning,
+        },
+      });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

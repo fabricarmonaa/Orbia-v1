@@ -152,17 +152,17 @@ export default function ProductsPage() {
     }
   }
 
-  async function exportCSV() {
+  async function exportPDF() {
     try {
-      const res = await apiRequest("GET", "/api/products/export/csv");
+      const res = await apiRequest("GET", "/api/products/export");
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = "productos.csv";
+      a.download = "productos.pdf";
       a.click();
       URL.revokeObjectURL(url);
-      toast({ title: "CSV descargado" });
+      toast({ title: "PDF descargado" });
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
     }
@@ -241,9 +241,9 @@ export default function ProductsPage() {
               Dictar
             </Button>
           )}
-          <Button variant="outline" onClick={exportCSV} data-testid="button-export-csv">
+          <Button variant="outline" onClick={exportPDF} data-testid="button-export-pdf">
             <Download className="w-4 h-4 mr-2" />
-            CSV
+            PDF
           </Button>
           <Dialog open={catDialog} onOpenChange={setCatDialog}>
             <DialogTrigger asChild>
