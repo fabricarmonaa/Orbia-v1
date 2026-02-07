@@ -1,0 +1,286 @@
+Estás trabajando sobre el repo existente Orbia-Orbiter (Node + Postgres/Drizzle + React, y ai-service FastAPI con faster-whisper). NO reescribas el proyecto desde cero. Tu objetivo es cerrar los bloqueantes y dejar el sistema “vendible”:
+
+Reglas
+
+NO mocks: eliminar cualquier fallback “mock” del STT. Si falta dependencia, fallar con 500 claro.
+
+Mantener Postgres/Drizzle por ahora.
+
+Mantener endpoints existentes; si agregás endpoints nuevos, no rompas los actuales.
+
+Multi-tenant + branch-scope deben quedar blindados (cero filtraciones).
+
+Delivery addon debe usar Google Directions/Geocoding para rutas con paradas en orden de clic.
+
+Al final, dejar CHANGELOG.md + “Cómo probar” paso a paso.
+
+BLOQUE A — STT REAL USABLE (audio correcto + sin mock + ejecutar comandos)
+A1) Arreglar formato de audio (WebM/Opus → WAV) antes de transcribir
+
+Actualmente el frontend graba WebM/Opus y el ai-service lo guarda como .wav aunque no lo sea. Debe convertirse.
+Implementar conversión con ffmpeg.
+
+Opción preferida: convertir en Node antes de mandar al ai-service:
+
+En POST /api/ai/stt:
+
+recibir audio multipart
+
+guardar temporal input.webm
+
+ejecutar ffmpeg para generar output.wav (mono, 16kHz)
+
+enviar output.wav al ai-service
+
+borrar temporales
+
+Si ffmpeg no está disponible en Replit, entonces hacerlo en Python:
+
+Python recibe bytes, escribe .webm, corre ffmpeg a .wav, transcribe, borra temporales.
+
+Elegí el enfoque que funcione en Replit sin suposiciones. Verificá disponibilidad y documentalo.
+
+A2) Eliminar modo mock del ai-service
+
+En ai-service/main.py o equivalente:
+
+borrar fallback whisper_model="mock" y transcripción dummy.
+
+si no se puede cargar el modelo o falta dependencia: responder 500 con JSON {error, details}.
+
+A3) STT debe crear cosas reales (apply command)
+
+Ahora /api/ai/stt devuelve transcript+intent y loguea, pero no aplica comandos.
+Agregar un flujo real de “confirmar/aplicar”:
+
+Endpoint nuevo (recomendado)
+
+POST /api/ai/apply
+Payload:
+
+{
+  "stt_log_id": "...",
+  "intent": "CREATE_ORDER|CASH_MOVEMENT|CREATE_PRODUCT",
+  "extracted_fields": {...},
+  "context": "orders|cash|products",
+  "branchId": "...optional..."
+}
+
+
+Comportamiento:
+
+Validar JWT + tenant
+
+requireFeature("stt") (solo plan ESCALA)
+
+Si scope=BRANCH, forzar branchId token
+
+Ejecutar comando real:
+
+CREATE_ORDER → crear order real
+
+CASH_MOVEMENT → crear movimiento real (ingreso/egreso)
+
+CREATE_PRODUCT → crear producto real
+
+Guardar en DB:
+
+marcar stt_logs.confirmed=true
+
+guardar result_entity_type y result_entity_id
+
+Responder con el recurso creado.
+
+Frontend
+
+En la UI de voz:
+
+después de transcribir, mostrar preview editable
+
+botón “Aplicar” llama /api/ai/apply
+
+mostrar success + navegar al recurso creado.
+
+A4) Parser determinístico (sin LLM)
+
+En ai-service, además de transcribir:
+
+Implementar extracción mínima por regex:
+
+Cash: detectar “ingreso/egreso”, monto, método (efectivo/transferencia), nota
+
+Orders: detectar “pedido/turno/servicio”, nombre cliente, fecha/hora relativa simple
+
+Products: nombre, precio, costo, stock
+Devolver intent + extracted_fields + suggested_command.
+No inventar: si faltan campos, devolver missing_fields.
+
+BLOQUE B — Branch-scope “sub-tenant” blindado en TODO
+B1) Centralizar el filtro por branch
+
+Crear helpers:
+
+applyTenantScope(query, ctx)
+
+applyBranchScope(query, ctx) (si scope=BRANCH agrega filtro branchId)
+
+Aplicar en:
+
+Orders (list/get/update/create)
+
+Cash sessions + movements
+
+Expenses (fixed/variable)
+
+Products stock (by branch)
+
+Dashboards/Reports (cuando muestren operaciones)
+
+B2) Writes: forzar branchId
+
+En endpoints de creación/actualización:
+
+si scope=BRANCH:
+
+ignorar branchId del body
+
+usar el del token
+
+en recursos “generales”, el branch user no puede escribir “general”.
+
+B3) Pruebas manuales mínimas
+
+Agregar un script o checklist en README:
+
+crear 2 sucursales
+
+crear user branch para cada una
+
+verificar que branch A no ve pedidos/caja/stock de branch B
+
+BLOQUE C — Delivery addon final (Google Maps Directions + waypoints + panel delivery)
+C1) Config Google Maps por tenant
+
+Agregar/confirmar en config:
+
+google_maps_api_key
+
+default_origin_address (o por sucursal)
+Esto se edita desde tenant config (si addon activo) o se asigna por owner si preferís.
+
+C2) Geocoding al crear pedido con delivery
+
+Cuando un pedido tiene requiresDelivery=true:
+
+geocodificar destination_address
+
+guardar lat/lng en orders.delivery_details o tabla delivery.
+(Si falla geocoding, permitir guardar igual pero marcar “needs_geocode=true”.)
+
+C3) Ruta con paradas en orden de clic (Directions API)
+
+En panel delivery:
+
+seleccionar pedidos → stops en orden
+
+al confirmar ruta:
+
+crear delivery_route + stops
+
+llamar Directions:
+
+origin = default_origin (sucursal o config)
+
+waypoints = stops[0..n-2]
+
+destination = stops[n-1]
+
+guardar:
+
+distance, duration, polyline
+
+Mostrar mapa con la polyline (o mínimo link a Google Maps directions con waypoints).
+Importante: mantener el orden de clic, NO optimizar.
+
+C4) Acciones configurables + evidencia foto
+
+Verificar que:
+
+action states son configurables por tenant
+
+al marcar acción:
+
+requiere foto si requires_photo=true
+
+guarda proof
+
+escribe evento en historial del pedido
+
+BLOQUE D — Owner toggles de addons por tenant (solo vos)
+D1) Endpoint superadmin para addons
+
+Agregar:
+
+PATCH /api/super/tenants/:tenantId/addons
+Body:
+
+{ "delivery": true/false }
+
+
+Solo superadmin.
+Guarda en root/tenant settings.
+
+D2) UI owner
+
+En owner tenants list/detail:
+
+switch “Delivery addon”
+
+al cambiar, pega al endpoint de arriba
+
+D3) Enforcement
+
+En endpoints tenant/delivery relacionados:
+
+requireAddon("delivery")
+
+BLOQUE E — Integridad DB + jobs
+E1) Constraints
+
+Asegurar unique:
+
+product_stock_by_branch (tenantId, productId, branchId) UNIQUE
+
+delivery_agents (tenantId, dni) UNIQUE
+
+order_public_links (trackingId) UNIQUE
+
+E2) Purge job tracking
+
+Implementar job:
+
+cada X minutos:
+
+revocar links vencidos
+
+opcional: marcar órdenes cerradas como “archived/purged” si exceden retención
+
+E3) Seeds OFF
+
+Asegurar que seed solo corre con SEED=true.
+
+ENTREGABLES FINALES
+
+Código funcionando sin mocks
+
+STT end-to-end crea pedidos/movimientos/productos reales (plan ESCALA)
+
+Branch-scope blindado en todo
+
+Delivery con Directions/waypoints + evidencia y estados configurables
+
+Owner toggles de addons
+
+CHANGELOG.md + README “Cómo probar” (paso a paso)
+
+Empezá por BLOQUE A (STT), luego B, luego C, luego D, luego E.

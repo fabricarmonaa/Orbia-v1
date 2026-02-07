@@ -1,18 +1,20 @@
 import { useState, useCallback } from "react";
-import { useVoiceRecorder } from "../../replit_integrations/audio/useVoiceRecorder";
 import { apiRequest } from "@/lib/auth";
 import { usePlan } from "@/lib/plan";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Mic, Square, Loader2, Check, X, AlertCircle } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Mic, Square, Loader2, Check, X, AlertCircle, Pencil, Send } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { queryClient } from "@/lib/queryClient";
 
 export type VoiceContext = "orders" | "cash" | "products";
 
 interface VoiceCommandProps {
   context: VoiceContext;
-  onConfirm: (intent: any) => void;
+  onResult?: (data: any) => void;
   onCancel?: () => void;
 }
 
@@ -22,69 +24,157 @@ interface SttResult {
   context: string;
 }
 
-export function VoiceCommand({ context, onConfirm, onCancel }: VoiceCommandProps) {
+const INTENT_FIELDS: Record<string, { key: string; label: string; type: string }[]> = {
+  orders: [
+    { key: "customerName", label: "Cliente", type: "text" },
+    { key: "customerPhone", label: "Teléfono", type: "text" },
+    { key: "description", label: "Descripción", type: "text" },
+    { key: "totalAmount", label: "Monto total", type: "number" },
+  ],
+  cash: [
+    { key: "amount", label: "Monto", type: "number" },
+    { key: "method", label: "Método", type: "text" },
+    { key: "category", label: "Categoría", type: "text" },
+    { key: "description", label: "Descripción", type: "text" },
+  ],
+  products: [
+    { key: "name", label: "Nombre", type: "text" },
+    { key: "price", label: "Precio", type: "number" },
+    { key: "description", label: "Descripción", type: "text" },
+    { key: "sku", label: "SKU", type: "text" },
+  ],
+};
+
+export function VoiceCommand({ context, onResult, onCancel }: VoiceCommandProps) {
   const { hasFeature } = usePlan();
-  const { state: recState, startRecording, stopRecording } = useVoiceRecorder();
+  const [recording, setRecording] = useState(false);
+  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
   const [processing, setProcessing] = useState(false);
+  const [applying, setApplying] = useState(false);
   const [result, setResult] = useState<SttResult | null>(null);
+  const [editedIntent, setEditedIntent] = useState<Record<string, any>>({});
+  const [editing, setEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
 
   const canUseSTT = hasFeature("stt");
 
-  const handleToggleRecording = useCallback(async () => {
+  const handleStartRecording = useCallback(async () => {
     setError(null);
-    if (recState === "recording") {
-      setProcessing(true);
-      try {
-        const blob = await stopRecording();
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      const chunks: BlobPart[] = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunks.push(e.data);
+      };
+
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
         if (blob.size === 0) {
           setError("No se grabó audio");
           setProcessing(false);
           return;
         }
-        const arrayBuffer = await blob.arrayBuffer();
-        const base64 = btoa(
-          new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), "")
-        );
 
-        const res = await apiRequest("POST", "/api/ai/stt", {
-          audio: base64,
-          context,
-        });
-        const data = await res.json();
-        setResult(data.data);
-      } catch (err: any) {
-        let msg = "Error procesando el audio";
+        setProcessing(true);
         try {
-          const parsed = JSON.parse(err.message.split(": ").slice(1).join(": "));
-          msg = parsed.error || msg;
-        } catch {
-          if (err.message) msg = err.message;
-        }
-        setError(msg);
-      } finally {
-        setProcessing(false);
-      }
-    } else {
-      try {
-        await startRecording();
-      } catch {
-        setError("No se pudo acceder al micrófono. Verificá los permisos del navegador.");
-      }
-    }
-  }, [recState, stopRecording, startRecording, context]);
+          const arrayBuffer = await blob.arrayBuffer();
+          const base64 = btoa(
+            new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), "")
+          );
 
-  const handleConfirm = useCallback(() => {
-    if (result?.intent) {
-      onConfirm(result.intent);
-      setResult(null);
+          const res = await apiRequest("POST", "/api/ai/stt", { audio: base64, context });
+          const data = await res.json();
+          setResult(data.data);
+          setEditedIntent({ ...data.data.intent });
+        } catch (err: any) {
+          let msg = "Error procesando el audio";
+          try {
+            const parsed = JSON.parse(err.message.split(": ").slice(1).join(": "));
+            msg = parsed.error || msg;
+          } catch {
+            if (err.message) msg = err.message;
+          }
+          setError(msg);
+        } finally {
+          setProcessing(false);
+        }
+      };
+
+      recorder.start();
+      setMediaRecorder(recorder);
+      setRecording(true);
+    } catch {
+      setError("No se pudo acceder al micrófono. Verificá los permisos del navegador.");
     }
-  }, [result, onConfirm]);
+  }, [context]);
+
+  const handleStopRecording = useCallback(() => {
+    if (mediaRecorder && mediaRecorder.state === "recording") {
+      mediaRecorder.stop();
+      setRecording(false);
+      setMediaRecorder(null);
+    }
+  }, [mediaRecorder]);
+
+  const handleToggleRecording = useCallback(() => {
+    if (recording) {
+      handleStopRecording();
+    } else {
+      handleStartRecording();
+    }
+  }, [recording, handleStartRecording, handleStopRecording]);
+
+  const handleApply = useCallback(async () => {
+    if (!result) return;
+    setApplying(true);
+    try {
+      const res = await apiRequest("POST", "/api/ai/apply", {
+        context,
+        intent: editedIntent,
+      });
+      const data = await res.json();
+
+      const invalidateKeys: Record<string, string[]> = {
+        orders: ["/api/orders", "/api/dashboard/stats"],
+        cash: ["/api/cash/movements", "/api/cash/sessions", "/api/dashboard/stats"],
+        products: ["/api/products", "/api/dashboard/stats"],
+      };
+      for (const key of invalidateKeys[context] || []) {
+        queryClient.invalidateQueries({ queryKey: [key] });
+      }
+
+      toast({
+        title: "Comando aplicado",
+        description: `Se creó el ${contextLabels[context]} correctamente.`,
+      });
+      onResult?.(data.data);
+      setResult(null);
+      setEditedIntent({});
+      setEditing(false);
+    } catch (err: any) {
+      toast({
+        title: "Error",
+        description: err.message || "No se pudo aplicar el comando",
+        variant: "destructive",
+      });
+    } finally {
+      setApplying(false);
+    }
+  }, [result, editedIntent, context, onResult, toast]);
 
   const handleRetry = useCallback(() => {
     setResult(null);
+    setEditedIntent({});
     setError(null);
+    setEditing(false);
+  }, []);
+
+  const handleFieldChange = useCallback((key: string, value: string) => {
+    setEditedIntent((prev) => ({ ...prev, [key]: value }));
   }, []);
 
   if (!canUseSTT) return null;
@@ -95,12 +185,14 @@ export function VoiceCommand({ context, onConfirm, onCancel }: VoiceCommandProps
     products: "producto",
   };
 
+  const fields = INTENT_FIELDS[context] || [];
+
   return (
     <div className="space-y-3" data-testid="voice-command-container">
       {!result && !error && (
         <div className="flex items-center gap-2">
           <Button
-            variant={recState === "recording" ? "destructive" : "outline"}
+            variant={recording ? "destructive" : "outline"}
             size="sm"
             onClick={handleToggleRecording}
             disabled={processing}
@@ -111,7 +203,7 @@ export function VoiceCommand({ context, onConfirm, onCancel }: VoiceCommandProps
                 <Loader2 className="w-4 h-4 mr-1 animate-spin" />
                 Procesando...
               </>
-            ) : recState === "recording" ? (
+            ) : recording ? (
               <>
                 <Square className="w-4 h-4 mr-1" />
                 Detener
@@ -123,7 +215,7 @@ export function VoiceCommand({ context, onConfirm, onCancel }: VoiceCommandProps
               </>
             )}
           </Button>
-          {recState === "recording" && (
+          {recording && (
             <div className="flex items-center gap-1.5">
               <div className="w-2 h-2 rounded-full bg-destructive animate-pulse" />
               <span className="text-xs text-muted-foreground">Grabando...</span>
@@ -169,35 +261,88 @@ export function VoiceCommand({ context, onConfirm, onCancel }: VoiceCommandProps
                 "{result.transcription}"
               </p>
             </div>
-            <div>
-              <p className="text-xs text-muted-foreground mb-1">Datos detectados:</p>
-              <div className="flex flex-wrap gap-1.5" data-testid="intent-tags">
-                {result.intent && typeof result.intent === "object" && !result.intent.raw ? (
-                  Object.entries(result.intent)
-                    .filter(([k]) => k !== "action")
-                    .map(([key, val]) => (
-                      <Badge key={key} variant="secondary" className="text-xs">
-                        {formatIntentKey(key)}: {String(val)}
-                      </Badge>
-                    ))
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    No se pudieron extraer datos estructurados
-                  </p>
-                )}
+
+            {!editing ? (
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <p className="text-xs text-muted-foreground">Datos detectados:</p>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-5 w-5"
+                    onClick={() => setEditing(true)}
+                    data-testid="button-voice-edit"
+                  >
+                    <Pencil className="w-3 h-3" />
+                  </Button>
+                </div>
+                <div className="flex flex-wrap gap-1.5" data-testid="intent-tags">
+                  {editedIntent && typeof editedIntent === "object" && !editedIntent.raw ? (
+                    Object.entries(editedIntent)
+                      .filter(([k]) => k !== "action")
+                      .filter(([, v]) => v !== null && v !== undefined && v !== "")
+                      .map(([key, val]) => (
+                        <Badge key={key} variant="secondary" className="text-xs">
+                          {formatIntentKey(key)}: {String(val)}
+                        </Badge>
+                      ))
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      No se pudieron extraer datos estructurados
+                    </p>
+                  )}
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="space-y-2" data-testid="intent-edit-form">
+                {fields.map((field) => (
+                  <div key={field.key} className="flex items-center gap-2">
+                    <Label className="text-xs w-24 flex-shrink-0">{field.label}</Label>
+                    <Input
+                      type={field.type}
+                      value={editedIntent[field.key] ?? ""}
+                      onChange={(e) => handleFieldChange(field.key, e.target.value)}
+                      className="h-8 text-sm"
+                      data-testid={`input-intent-${field.key}`}
+                    />
+                  </div>
+                ))}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setEditing(false)}
+                  data-testid="button-voice-done-edit"
+                >
+                  Listo
+                </Button>
+              </div>
+            )}
+
             <div className="flex gap-2">
-              <Button size="sm" onClick={handleConfirm} data-testid="button-voice-confirm">
-                <Check className="w-4 h-4 mr-1" />
-                Confirmar
+              <Button
+                size="sm"
+                onClick={handleApply}
+                disabled={applying}
+                data-testid="button-voice-apply"
+              >
+                {applying ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                    Aplicando...
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-4 h-4 mr-1" />
+                    Aplicar
+                  </>
+                )}
               </Button>
               <Button variant="outline" size="sm" onClick={handleRetry} data-testid="button-voice-retry">
                 <Mic className="w-4 h-4 mr-1" />
                 Reintentar
               </Button>
               {onCancel && (
-                <Button variant="ghost" size="sm" onClick={() => { setResult(null); onCancel(); }}>
+                <Button variant="ghost" size="sm" onClick={() => { setResult(null); setEditedIntent({}); setEditing(false); onCancel(); }}>
                   Cancelar
                 </Button>
               )}

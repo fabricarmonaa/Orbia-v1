@@ -1,0 +1,28 @@
+import type { Express } from "express";
+import { type Server } from "http";
+import { registerAuthRoutes } from "./auth";
+import { registerSuperRoutes } from "./super";
+import { registerTenantRoutes } from "./tenant";
+import { registerOrderRoutes } from "./orders";
+import { registerBranchRoutes } from "./branches";
+import { registerCashRoutes } from "./cash";
+import { registerProductRoutes } from "./products";
+import { registerSttRoutes } from "./stt";
+import { registerTrackingRoutes } from "./tracking";
+import { registerDeliveryRoutes } from "./delivery";
+import { registerStaticUploads } from "./uploads";
+
+export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
+  registerStaticUploads(app);
+  registerAuthRoutes(app);
+  registerSuperRoutes(app);
+  registerTenantRoutes(app);
+  registerOrderRoutes(app);
+  registerBranchRoutes(app);
+  registerCashRoutes(app);
+  registerProductRoutes(app);
+  registerSttRoutes(app);
+  registerTrackingRoutes(app);
+  registerDeliveryRoutes(app);
+  return httpServer;
+}

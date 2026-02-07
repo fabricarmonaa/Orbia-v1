@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { apiRequest } from "@/lib/auth";
+import { queryClient } from "@/lib/queryClient";
 import { usePlan } from "@/lib/plan";
 import { VoiceCommand } from "@/components/voice-command";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -146,17 +147,10 @@ export default function CashPage() {
     .filter((m) => m.type === "egreso")
     .reduce((acc, m) => acc + parseFloat(m.amount), 0);
 
-  function handleVoiceConfirm(intent: any) {
-    setNewMovement({
-      type: intent.type || "ingreso",
-      amount: intent.amount ? String(intent.amount) : "",
-      method: intent.method || "efectivo",
-      category: intent.category || "",
-      description: intent.description || "",
-    });
+  function handleVoiceResult() {
     setShowVoice(false);
-    setDialogOpen(true);
-    toast({ title: "Datos cargados por voz" });
+    queryClient.invalidateQueries({ queryKey: ["/api/cash/movements"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/cash/sessions"] });
   }
 
   function formatDate(d: string | Date | null) {
@@ -396,7 +390,7 @@ export default function CashPage() {
       {showVoice && (
         <VoiceCommand
           context="cash"
-          onConfirm={handleVoiceConfirm}
+          onResult={handleVoiceResult}
           onCancel={() => setShowVoice(false)}
         />
       )}

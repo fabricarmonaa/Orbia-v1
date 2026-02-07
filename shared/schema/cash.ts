@@ -1,0 +1,119 @@
+import {
+  pgTable,
+  text,
+  varchar,
+  integer,
+  boolean,
+  timestamp,
+  serial,
+  numeric,
+  index,
+} from "drizzle-orm/pg-core";
+import { createInsertSchema } from "drizzle-zod";
+import { z } from "zod";
+import { tenants } from "./tenants";
+import { branches } from "./branches";
+import { users } from "./users";
+import { orders } from "./orders";
+
+export const cashSessions = pgTable(
+  "cash_sessions",
+  {
+    id: serial("id").primaryKey(),
+    tenantId: integer("tenant_id")
+      .references(() => tenants.id)
+      .notNull(),
+    branchId: integer("branch_id").references(() => branches.id),
+    userId: integer("user_id")
+      .references(() => users.id)
+      .notNull(),
+    openingAmount: numeric("opening_amount", { precision: 12, scale: 2 })
+      .notNull()
+      .default("0"),
+    closingAmount: numeric("closing_amount", { precision: 12, scale: 2 }),
+    difference: numeric("difference", { precision: 12, scale: 2 }),
+    status: varchar("status", { length: 20 }).notNull().default("open"),
+    openedAt: timestamp("opened_at").defaultNow().notNull(),
+    closedAt: timestamp("closed_at"),
+  },
+  (table) => [index("idx_cash_sessions_tenant").on(table.tenantId)]
+);
+
+export const insertCashSessionSchema = createInsertSchema(cashSessions).omit({
+  id: true,
+  openedAt: true,
+});
+export type InsertCashSession = z.infer<typeof insertCashSessionSchema>;
+export type CashSession = typeof cashSessions.$inferSelect;
+
+export const cashMovements = pgTable(
+  "cash_movements",
+  {
+    id: serial("id").primaryKey(),
+    tenantId: integer("tenant_id")
+      .references(() => tenants.id)
+      .notNull(),
+    sessionId: integer("session_id").references(() => cashSessions.id),
+    branchId: integer("branch_id").references(() => branches.id),
+    type: varchar("type", { length: 20 }).notNull(),
+    amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+    method: varchar("method", { length: 50 }).default("efectivo"),
+    category: varchar("category", { length: 100 }),
+    description: text("description"),
+    orderId: integer("order_id").references(() => orders.id),
+    createdById: integer("created_by_id").references(() => users.id),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [index("idx_cash_movements_tenant").on(table.tenantId)]
+);
+
+export const insertCashMovementSchema = createInsertSchema(cashMovements).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertCashMovement = z.infer<typeof insertCashMovementSchema>;
+export type CashMovement = typeof cashMovements.$inferSelect;
+
+export const expenseCategories = pgTable(
+  "expense_categories",
+  {
+    id: serial("id").primaryKey(),
+    tenantId: integer("tenant_id")
+      .references(() => tenants.id)
+      .notNull(),
+    name: varchar("name", { length: 100 }).notNull(),
+    type: varchar("type", { length: 20 }).notNull().default("variable"),
+  },
+  (table) => [index("idx_expense_cats_tenant").on(table.tenantId)]
+);
+
+export const insertExpenseCategorySchema = createInsertSchema(
+  expenseCategories
+).omit({ id: true });
+export type InsertExpenseCategory = z.infer<
+  typeof insertExpenseCategorySchema
+>;
+export type ExpenseCategory = typeof expenseCategories.$inferSelect;
+
+export const fixedExpenses = pgTable(
+  "fixed_expenses",
+  {
+    id: serial("id").primaryKey(),
+    tenantId: integer("tenant_id")
+      .references(() => tenants.id)
+      .notNull(),
+    categoryId: integer("category_id").references(() => expenseCategories.id),
+    name: varchar("name", { length: 200 }).notNull(),
+    amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+    periodicity: varchar("periodicity", { length: 20 }).default("monthly"),
+    payDay: integer("pay_day"),
+    isActive: boolean("is_active").notNull().default(true),
+  },
+  (table) => [index("idx_fixed_expenses_tenant").on(table.tenantId)]
+);
+
+export const insertFixedExpenseSchema = createInsertSchema(fixedExpenses).omit({
+  id: true,
+});
+export type InsertFixedExpense = z.infer<typeof insertFixedExpenseSchema>;
+export type FixedExpense = typeof fixedExpenses.$inferSelect;

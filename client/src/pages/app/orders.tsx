@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { apiRequest, useAuth } from "@/lib/auth";
+import { queryClient } from "@/lib/queryClient";
 import { usePlan } from "@/lib/plan";
 import { VoiceCommand } from "@/components/voice-command";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -212,22 +213,9 @@ export default function OrdersPage() {
     return s || { name: "Sin estado", color: "#6B7280" };
   }
 
-  function handleVoiceConfirm(intent: any) {
-    setNewOrder({
-      type: intent.type || "PEDIDO",
-      customerName: intent.customerName || "",
-      customerPhone: intent.customerPhone || "",
-      customerEmail: "",
-      description: intent.description || "",
-      totalAmount: intent.totalAmount ? String(intent.totalAmount) : "",
-      statusId: "",
-      requiresDelivery: false,
-      deliveryAddress: "",
-      deliveryAddressNotes: "",
-    });
+  function handleVoiceResult() {
     setShowVoice(false);
-    setDialogOpen(true);
-    toast({ title: "Datos cargados por voz" });
+    queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
   }
 
   function formatDate(d: string | Date | null) {
@@ -396,7 +384,7 @@ export default function OrdersPage() {
       {showVoice && (
         <VoiceCommand
           context="orders"
-          onConfirm={handleVoiceConfirm}
+          onResult={handleVoiceResult}
           onCancel={() => setShowVoice(false)}
         />
       )}

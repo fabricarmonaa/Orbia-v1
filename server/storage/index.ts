@@ -1,0 +1,122 @@
+import { IStorage } from './interface';
+import { planStorage } from './plans';
+import { tenantStorage } from './tenants';
+import { userStorage } from './users';
+import { configStorage } from './config';
+import { branchStorage } from './branches';
+import { orderStorage } from './orders';
+import { cashStorage } from './cash';
+import { productStorage } from './products';
+import { deliveryStorage } from './delivery';
+import { stockStorage } from './stock';
+import { sttStorage } from './stt';
+import { trackingStorage } from './tracking';
+
+export class DatabaseStorage implements IStorage {
+  getPlans = planStorage.getPlans;
+  getPlanById = planStorage.getPlanById;
+  createPlan = planStorage.createPlan;
+
+  getTenants = tenantStorage.getTenants;
+  getTenantById = tenantStorage.getTenantById;
+  getTenantByCode = tenantStorage.getTenantByCode;
+  createTenant = tenantStorage.createTenant;
+  updateTenantPlan = tenantStorage.updateTenantPlan;
+  updateTenantSubscription = tenantStorage.updateTenantSubscription;
+  updateTenantActive = tenantStorage.updateTenantActive;
+  getTenantAddon = tenantStorage.getTenantAddon;
+  getTenantAddons = tenantStorage.getTenantAddons;
+  upsertTenantAddon = tenantStorage.upsertTenantAddon;
+
+  getUserById = userStorage.getUserById;
+  getUserByEmail = userStorage.getUserByEmail;
+  getSuperAdminByEmail = userStorage.getSuperAdminByEmail;
+  createUser = userStorage.createUser;
+
+  getConfig = configStorage.getConfig;
+  upsertConfig = configStorage.upsertConfig;
+  getSuperAdminConfig = configStorage.getSuperAdminConfig;
+  upsertSuperAdminConfig = configStorage.upsertSuperAdminConfig;
+
+  getBranches = branchStorage.getBranches;
+  createBranch = branchStorage.createBranch;
+  getBranchById = branchStorage.getBranchById;
+
+  getOrderStatuses = orderStorage.getOrderStatuses;
+  getOrderStatusById = orderStorage.getOrderStatusById;
+  createOrderStatus = orderStorage.createOrderStatus;
+  getOrders = orderStorage.getOrders;
+  getOrderById = orderStorage.getOrderById;
+  getOrderByTrackingId = orderStorage.getOrderByTrackingId;
+  createOrder = orderStorage.createOrder;
+  updateOrderStatus = orderStorage.updateOrderStatus;
+  updateOrderTracking = orderStorage.updateOrderTracking;
+  getNextOrderNumber = orderStorage.getNextOrderNumber;
+  countOrders = orderStorage.countOrders;
+  getOrderHistory = orderStorage.getOrderHistory;
+  createOrderHistory = orderStorage.createOrderHistory;
+  getOrderComments = orderStorage.getOrderComments;
+  getPublicOrderComments = orderStorage.getPublicOrderComments;
+  createOrderComment = orderStorage.createOrderComment;
+  getOrdersByBranch = orderStorage.getOrdersByBranch;
+
+  getCashSessions = cashStorage.getCashSessions;
+  getOpenSession = cashStorage.getOpenSession;
+  createCashSession = cashStorage.createCashSession;
+  closeCashSession = cashStorage.closeCashSession;
+  getCashMovements = cashStorage.getCashMovements;
+  createCashMovement = cashStorage.createCashMovement;
+  getMonthlyIncome = cashStorage.getMonthlyIncome;
+  getMonthlyExpenses = cashStorage.getMonthlyExpenses;
+  getTodayIncome = cashStorage.getTodayIncome;
+  getTodayExpenses = cashStorage.getTodayExpenses;
+  getCashSessionsByBranch = cashStorage.getCashSessionsByBranch;
+  getCashMovementsByBranch = cashStorage.getCashMovementsByBranch;
+
+  getProductCategories = productStorage.getProductCategories;
+  createProductCategory = productStorage.createProductCategory;
+  getProducts = productStorage.getProducts;
+  getProductById = productStorage.getProductById;
+  createProduct = productStorage.createProduct;
+  updateProduct = productStorage.updateProduct;
+  toggleProductActive = productStorage.toggleProductActive;
+  countProducts = productStorage.countProducts;
+
+  createSttLog = sttStorage.createSttLog;
+  getSttLogs = sttStorage.getSttLogs;
+
+  getDeliveryAgents = deliveryStorage.getDeliveryAgents;
+  getDeliveryAgentById = deliveryStorage.getDeliveryAgentById;
+  getDeliveryAgentByDni = deliveryStorage.getDeliveryAgentByDni;
+  createDeliveryAgent = deliveryStorage.createDeliveryAgent;
+  updateDeliveryAgent = deliveryStorage.updateDeliveryAgent;
+  toggleDeliveryAgentActive = deliveryStorage.toggleDeliveryAgentActive;
+  getDeliveryActionStates = deliveryStorage.getDeliveryActionStates;
+  createDeliveryActionState = deliveryStorage.createDeliveryActionState;
+  updateDeliveryActionState = deliveryStorage.updateDeliveryActionState;
+  deleteDeliveryActionState = deliveryStorage.deleteDeliveryActionState;
+  getDeliveryRoutes = deliveryStorage.getDeliveryRoutes;
+  getDeliveryRoutesByAgent = deliveryStorage.getDeliveryRoutesByAgent;
+  getActiveRouteByAgent = deliveryStorage.getActiveRouteByAgent;
+  getDeliveryRouteById = deliveryStorage.getDeliveryRouteById;
+  createDeliveryRoute = deliveryStorage.createDeliveryRoute;
+  completeDeliveryRoute = deliveryStorage.completeDeliveryRoute;
+  getRouteStops = deliveryStorage.getRouteStops;
+  createRouteStop = deliveryStorage.createRouteStop;
+  updateRouteStopAction = deliveryStorage.updateRouteStopAction;
+  getDeliveryProofsByOrder = deliveryStorage.getDeliveryProofsByOrder;
+  createDeliveryProof = deliveryStorage.createDeliveryProof;
+  getDeliveryOrders = deliveryStorage.getDeliveryOrders;
+  updateOrderDeliveryStatus = deliveryStorage.updateOrderDeliveryStatus;
+  assignDeliveryAgent = deliveryStorage.assignDeliveryAgent;
+
+  getProductStockByBranch = stockStorage.getProductStockByBranch;
+  upsertProductStockByBranch = stockStorage.upsertProductStockByBranch;
+  getStockMovements = stockStorage.getStockMovements;
+  createStockMovement = stockStorage.createStockMovement;
+
+  purgeExpiredTracking = trackingStorage.purgeExpiredTracking;
+}
+
+export const storage = new DatabaseStorage();
+export type { IStorage } from './interface';

@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { apiRequest } from "@/lib/auth";
+import { queryClient } from "@/lib/queryClient";
 import { usePlan } from "@/lib/plan";
 import { VoiceCommand } from "@/components/voice-command";
 import { UpgradePrompt } from "@/components/upgrade-prompt";
@@ -181,19 +182,9 @@ export default function ProductsPage() {
     }
   }
 
-  function handleVoiceConfirm(intent: any) {
-    setNewProduct({
-      name: intent.name || "",
-      description: intent.description || "",
-      price: intent.price ? String(intent.price) : "",
-      sku: intent.sku || "",
-      categoryId: "",
-      cost: intent.cost ? String(intent.cost) : "",
-      stock: intent.stock ? String(intent.stock) : "",
-    });
+  function handleVoiceResult() {
     setShowVoice(false);
-    setProductDialog(true);
-    toast({ title: "Datos cargados por voz" });
+    queryClient.invalidateQueries({ queryKey: ["/api/products"] });
   }
 
   async function openStockDialog(product: Product) {
@@ -427,7 +418,7 @@ export default function ProductsPage() {
       {showVoice && (
         <VoiceCommand
           context="products"
-          onConfirm={handleVoiceConfirm}
+          onResult={handleVoiceResult}
           onCancel={() => setShowVoice(false)}
         />
       )}
