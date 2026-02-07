@@ -11,12 +11,13 @@ import {
   requireAddon,
   deliveryAuth,
   getTenantPlan,
+  enforceBranchScope,
+  blockBranchScope,
 } from "./auth";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
 import { randomUUID } from "crypto";
-import { speechToText, ensureCompatibleFormat, openai } from "./replit_integrations/audio/client";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -126,6 +127,7 @@ export async function registerRoutes(
         tenantId: tenant.id,
         isSuperAdmin: false,
         branchId: user.branchId,
+        scope: user.scope || "TENANT",
       });
       res.json({
         token,
@@ -137,6 +139,7 @@ export async function registerRoutes(
           tenantId: tenant.id,
           isSuperAdmin: false,
           branchId: user.branchId,
+          scope: user.scope || "TENANT",
         },
         subscriptionWarning,
       });
@@ -240,6 +243,7 @@ export async function registerRoutes(
           email: user.email,
           fullName: user.fullName,
           role: user.role,
+          scope: user.scope || "TENANT",
           tenantId: user.tenantId,
           branchId: user.branchId,
         },
@@ -376,19 +380,26 @@ export async function registerRoutes(
   });
 
   // Orders
-  app.get("/api/orders", tenantAuth, async (req, res) => {
+  app.get("/api/orders", tenantAuth, enforceBranchScope, async (req, res) => {
     try {
-      const data = await storage.getOrders(req.auth!.tenantId!);
+      const tenantId = req.auth!.tenantId!;
+      let data;
+      if (req.auth!.scope === "BRANCH" && req.auth!.branchId) {
+        data = await storage.getOrdersByBranch(tenantId, req.auth!.branchId);
+      } else {
+        data = await storage.getOrders(tenantId);
+      }
       res.json({ data });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  app.post("/api/orders", tenantAuth, async (req, res) => {
+  app.post("/api/orders", tenantAuth, enforceBranchScope, async (req, res) => {
     try {
       const tenantId = req.auth!.tenantId!;
       const orderNumber = await storage.getNextOrderNumber(tenantId);
+      const branchId = req.auth!.scope === "BRANCH" ? req.auth!.branchId : (req.body.branchId || null);
       const data = await storage.createOrder({
         tenantId,
         orderNumber,
@@ -399,7 +410,10 @@ export async function registerRoutes(
         description: req.body.description || null,
         statusId: req.body.statusId || null,
         totalAmount: req.body.totalAmount ? String(req.body.totalAmount) : null,
+        branchId,
         createdById: req.auth!.userId,
+        createdByScope: req.auth!.scope || "TENANT",
+        createdByBranchId: req.auth!.branchId || null,
         requiresDelivery: req.body.requiresDelivery || false,
         deliveryAddress: req.body.deliveryAddress || null,
         deliveryCity: req.body.deliveryCity || null,
@@ -629,7 +643,7 @@ export async function registerRoutes(
     }
   });
 
-  // ==================== STT / AI ====================
+  // ==================== STT / AI (via microservice) ====================
   app.post("/api/ai/stt", tenantAuth, requireFeature("stt"), async (req, res) => {
     try {
       const { audio, context } = req.body;
@@ -641,66 +655,107 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Contexto inválido" });
       }
 
-      const audioBuffer = Buffer.from(audio, "base64");
-      const { buffer: compatBuffer, format } = await ensureCompatibleFormat(audioBuffer);
-      const transcription = await speechToText(compatBuffer, format);
+      const aiServiceUrl = process.env.AI_SERVICE_URL || "http://localhost:8001";
+      let sttResult: { transcription: string; intent: any };
 
-      if (!transcription || transcription.trim().length === 0) {
-        return res.status(400).json({ error: "No se pudo transcribir el audio" });
-      }
-
-      const systemPrompts: Record<string, string> = {
-        orders: `Sos un asistente para un sistema de gestión de pedidos en español argentino.
-El usuario dicta un pedido por voz. Extraé la intención en formato JSON.
-Campos posibles: { "action": "create_order", "customerName": string, "customerPhone": string, "description": string, "totalAmount": number, "type": "PEDIDO"|"ENCARGO"|"TURNO"|"SERVICIO" }
-Si no podés extraer algún campo, omitilo. Respondé SOLO con el JSON, sin texto adicional.`,
-        cash: `Sos un asistente para un sistema de caja/tesorería en español argentino.
-El usuario dicta un movimiento de caja por voz. Extraé la intención en formato JSON.
-Campos posibles: { "action": "create_movement", "type": "ingreso"|"egreso", "amount": number, "method": "efectivo"|"transferencia"|"tarjeta"|"mercadopago", "category": string, "description": string }
-Si no podés extraer algún campo, omitilo. Respondé SOLO con el JSON, sin texto adicional.`,
-        products: `Sos un asistente para un sistema de catálogo de productos en español argentino.
-El usuario dicta un producto por voz. Extraé la intención en formato JSON.
-Campos posibles: { "action": "create_product", "name": string, "description": string, "price": number, "cost": number, "stock": number, "sku": string }
-Si no podés extraer algún campo, omitilo. Respondé SOLO con el JSON, sin texto adicional.`,
-      };
-
-      const intentResponse = await openai.chat.completions.create({
-        model: "gpt-4.1-mini",
-        messages: [
-          { role: "system", content: systemPrompts[context] },
-          { role: "user", content: transcription },
-        ],
-        temperature: 0.1,
-      });
-
-      let intentJson: any = null;
-      const rawIntent = intentResponse.choices[0]?.message?.content || "";
       try {
-        const cleaned = rawIntent.replace(/```json?\n?/g, "").replace(/```/g, "").trim();
-        intentJson = JSON.parse(cleaned);
-      } catch {
-        intentJson = { raw: rawIntent };
+        const aiRes = await fetch(`${aiServiceUrl}/api/stt`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ audio, context }),
+          signal: AbortSignal.timeout(30000),
+        });
+        if (!aiRes.ok) {
+          const errBody = await aiRes.json().catch(() => ({}));
+          throw new Error((errBody as any).error || `AI service responded ${aiRes.status}`);
+        }
+        sttResult = await aiRes.json() as { transcription: string; intent: any };
+      } catch (fetchErr: any) {
+        if (fetchErr.name === "AbortError" || fetchErr.code === "ECONNREFUSED") {
+          return res.status(503).json({
+            error: "Servicio de IA no disponible. Intentá de nuevo más tarde.",
+            code: "AI_SERVICE_UNAVAILABLE",
+          });
+        }
+        throw fetchErr;
       }
 
       await storage.createSttLog({
         tenantId: req.auth!.tenantId!,
         userId: req.auth!.userId,
         context,
-        transcription,
-        intentJson,
+        transcription: sttResult.transcription,
+        intentJson: sttResult.intent,
         confirmed: false,
       });
 
       res.json({
         data: {
-          transcription,
-          intent: intentJson,
+          transcription: sttResult.transcription,
+          intent: sttResult.intent,
           context,
         },
       });
     } catch (err: any) {
       console.error("STT error:", err);
       res.status(500).json({ error: "Error procesando audio: " + (err.message || "desconocido") });
+    }
+  });
+
+  // ==================== PRODUCT STOCK BY BRANCH ====================
+  app.get("/api/products/:id/stock", tenantAuth, requireFeature("products"), async (req, res) => {
+    try {
+      const tenantId = req.auth!.tenantId!;
+      const productId = parseInt(req.params.id);
+      const product = await storage.getProductById(productId, tenantId);
+      if (!product) return res.status(404).json({ error: "Producto no encontrado" });
+      const stockByBranch = await storage.getProductStockByBranch(productId, tenantId);
+      const movements = await storage.getStockMovements(productId, tenantId);
+      res.json({ data: { stockByBranch, movements } });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.patch("/api/products/:id/stock", tenantAuth, requireFeature("products"), enforceBranchScope, async (req, res) => {
+    try {
+      const tenantId = req.auth!.tenantId!;
+      const productId = parseInt(req.params.id);
+      const { branchId, stock, reason } = req.body;
+      if (branchId === undefined || stock === undefined) {
+        return res.status(400).json({ error: "branchId y stock son obligatorios" });
+      }
+      const product = await storage.getProductById(productId, tenantId);
+      if (!product) return res.status(404).json({ error: "Producto no encontrado" });
+
+      const targetBranchId = req.auth!.scope === "BRANCH" ? req.auth!.branchId! : branchId;
+      const existing = await storage.getProductStockByBranch(productId, tenantId);
+      const prev = existing.find(s => s.branchId === targetBranchId);
+      const prevStock = prev?.stock || 0;
+      const delta = stock - prevStock;
+
+      await storage.upsertProductStockByBranch({
+        tenantId,
+        productId,
+        branchId: targetBranchId,
+        stock,
+      });
+
+      if (delta !== 0) {
+        await storage.createStockMovement({
+          tenantId,
+          productId,
+          branchId: targetBranchId,
+          quantity: delta,
+          reason: reason || null,
+          userId: req.auth!.userId,
+        });
+      }
+
+      const updatedStock = await storage.getProductStockByBranch(productId, tenantId);
+      res.json({ data: updatedStock });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
   });
 

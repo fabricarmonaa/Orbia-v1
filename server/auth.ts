@@ -120,6 +120,25 @@ export function tenantAuth(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+export function enforceBranchScope(req: Request, res: Response, next: NextFunction) {
+  if (req.auth?.scope === "BRANCH") {
+    if (!req.auth.branchId) {
+      return res.status(403).json({ error: "Usuario BRANCH sin sucursal asignada" });
+    }
+    if (req.body && req.body.branchId !== undefined) {
+      req.body.branchId = req.auth.branchId;
+    }
+  }
+  next();
+}
+
+export function blockBranchScope(req: Request, res: Response, next: NextFunction) {
+  if (req.auth?.scope === "BRANCH") {
+    return res.status(403).json({ error: "Acceso denegado para usuarios de sucursal" });
+  }
+  next();
+}
+
 export function requireFeature(featureKey: string) {
   return async (req: Request, res: Response, next: NextFunction) => {
     try {

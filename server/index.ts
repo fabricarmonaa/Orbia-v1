@@ -61,9 +61,14 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  const { seedDatabase, seedDeliveryData } = await import("./seed");
-  await seedDatabase();
-  await seedDeliveryData();
+  const shouldSeed = process.env.SEED !== "false";
+  if (shouldSeed) {
+    const { seedDatabase, seedDeliveryData } = await import("./seed");
+    await seedDatabase();
+    await seedDeliveryData();
+  } else {
+    log("Seeding disabled (SEED=false)");
+  }
 
   await registerRoutes(httpServer, app);
 
@@ -90,10 +95,19 @@ app.use((req, res, next) => {
     await setupVite(httpServer, app);
   }
 
-  // ALWAYS serve the app on the port specified in the environment variable PORT
-  // Other ports are firewalled. Default to 5000 if not specified.
-  // this serves both the API and the client.
-  // It is the only port that is not firewalled.
+  // Tracking purge job: revoke expired tracking links every 5 minutes
+  const { storage } = await import("./storage");
+  setInterval(async () => {
+    try {
+      const purged = await storage.purgeExpiredTracking();
+      if (purged > 0) {
+        log(`Purged ${purged} expired tracking link(s)`, "purge");
+      }
+    } catch (err) {
+      console.error("Tracking purge error:", err);
+    }
+  }, 5 * 60 * 1000);
+
   const port = parseInt(process.env.PORT || "5000", 10);
   httpServer.listen(
     {

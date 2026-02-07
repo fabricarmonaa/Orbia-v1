@@ -59,6 +59,7 @@ export const users = pgTable(
     password: text("password").notNull(),
     fullName: varchar("full_name", { length: 200 }).notNull(),
     role: varchar("role", { length: 50 }).notNull().default("staff"),
+    scope: varchar("scope", { length: 20 }).notNull().default("TENANT"),
     branchId: integer("branch_id"),
     isActive: boolean("is_active").notNull().default(true),
     isSuperAdmin: boolean("is_super_admin").notNull().default(false),
@@ -182,6 +183,8 @@ export const orders = pgTable(
     deliveryStatus: varchar("delivery_status", { length: 50 }),
     assignedAgentId: integer("assigned_agent_id"),
     createdById: integer("created_by_id").references(() => users.id),
+    createdByScope: varchar("created_by_scope", { length: 20 }).default("TENANT"),
+    createdByBranchId: integer("created_by_branch_id").references(() => branches.id),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
@@ -577,6 +580,61 @@ export const insertSuperAdminConfigSchema = createInsertSchema(superAdminConfig)
 });
 export type InsertSuperAdminConfig = z.infer<typeof insertSuperAdminConfigSchema>;
 export type SuperAdminConfig = typeof superAdminConfig.$inferSelect;
+
+// ==================== PRODUCT STOCK BY BRANCH ====================
+export const productStockByBranch = pgTable(
+  "product_stock_by_branch",
+  {
+    id: serial("id").primaryKey(),
+    tenantId: integer("tenant_id")
+      .references(() => tenants.id)
+      .notNull(),
+    productId: integer("product_id")
+      .references(() => products.id)
+      .notNull(),
+    branchId: integer("branch_id")
+      .references(() => branches.id)
+      .notNull(),
+    stock: integer("stock").notNull().default(0),
+  },
+  (table) => [
+    index("idx_stock_branch_tenant").on(table.tenantId),
+    index("idx_stock_branch_product").on(table.productId),
+  ]
+);
+
+export const insertProductStockByBranchSchema = createInsertSchema(productStockByBranch).omit({
+  id: true,
+});
+export type InsertProductStockByBranch = z.infer<typeof insertProductStockByBranchSchema>;
+export type ProductStockByBranch = typeof productStockByBranch.$inferSelect;
+
+// ==================== STOCK MOVEMENTS ====================
+export const stockMovements = pgTable(
+  "stock_movements",
+  {
+    id: serial("id").primaryKey(),
+    tenantId: integer("tenant_id")
+      .references(() => tenants.id)
+      .notNull(),
+    productId: integer("product_id")
+      .references(() => products.id)
+      .notNull(),
+    branchId: integer("branch_id").references(() => branches.id),
+    quantity: integer("quantity").notNull(),
+    reason: varchar("reason", { length: 200 }),
+    userId: integer("user_id").references(() => users.id),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [index("idx_stock_movements_tenant").on(table.tenantId)]
+);
+
+export const insertStockMovementSchema = createInsertSchema(stockMovements).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertStockMovement = z.infer<typeof insertStockMovementSchema>;
+export type StockMovement = typeof stockMovements.$inferSelect;
 
 // ==================== STT LOGS ====================
 export const sttLogs = pgTable(

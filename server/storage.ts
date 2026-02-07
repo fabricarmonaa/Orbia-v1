@@ -7,6 +7,7 @@ import {
   productCategories, products, sttLogs, superAdminConfig,
   tenantAddons, deliveryAgents, deliveryActionStates,
   deliveryRoutes, deliveryRouteStops, deliveryProofs,
+  productStockByBranch, stockMovements,
   type InsertPlan, type Plan,
   type InsertTenant, type Tenant,
   type InsertUser, type User,
@@ -28,6 +29,8 @@ import {
   type InsertDeliveryRouteStop, type DeliveryRouteStop,
   type InsertDeliveryProof, type DeliveryProof,
   type InsertSuperAdminConfig, type SuperAdminConfig,
+  type InsertProductStockByBranch, type ProductStockByBranch,
+  type InsertStockMovement, type StockMovement,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -165,6 +168,15 @@ export interface IStorage {
   // Tenant Subscription
   updateTenantSubscription(tenantId: number, startDate: Date, endDate: Date): Promise<void>;
   updateTenantActive(tenantId: number, isActive: boolean): Promise<void>;
+
+  // Product Stock by Branch
+  getProductStockByBranch(productId: number, tenantId: number): Promise<ProductStockByBranch[]>;
+  upsertProductStockByBranch(data: InsertProductStockByBranch): Promise<ProductStockByBranch>;
+  getStockMovements(productId: number, tenantId: number): Promise<StockMovement[]>;
+  createStockMovement(data: InsertStockMovement): Promise<StockMovement>;
+
+  // Tracking Purge
+  purgeExpiredTracking(): Promise<number>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -774,6 +786,63 @@ export class DatabaseStorage implements IStorage {
   }
   async updateTenantActive(tenantId: number, isActive: boolean) {
     await db.update(tenants).set({ isActive }).where(eq(tenants.id, tenantId));
+  }
+
+  // Product Stock by Branch
+  async getProductStockByBranch(productId: number, tenantId: number) {
+    return db
+      .select()
+      .from(productStockByBranch)
+      .where(and(eq(productStockByBranch.productId, productId), eq(productStockByBranch.tenantId, tenantId)));
+  }
+  async upsertProductStockByBranch(data: InsertProductStockByBranch) {
+    const [existing] = await db
+      .select()
+      .from(productStockByBranch)
+      .where(
+        and(
+          eq(productStockByBranch.productId, data.productId),
+          eq(productStockByBranch.branchId, data.branchId),
+          eq(productStockByBranch.tenantId, data.tenantId)
+        )
+      );
+    if (existing) {
+      const [updated] = await db
+        .update(productStockByBranch)
+        .set({ stock: data.stock })
+        .where(eq(productStockByBranch.id, existing.id))
+        .returning();
+      return updated;
+    }
+    const [created] = await db.insert(productStockByBranch).values(data).returning();
+    return created;
+  }
+  async getStockMovements(productId: number, tenantId: number) {
+    return db
+      .select()
+      .from(stockMovements)
+      .where(and(eq(stockMovements.productId, productId), eq(stockMovements.tenantId, tenantId)))
+      .orderBy(desc(stockMovements.createdAt));
+  }
+  async createStockMovement(data: InsertStockMovement) {
+    const [movement] = await db.insert(stockMovements).values(data).returning();
+    return movement;
+  }
+
+  // Tracking Purge
+  async purgeExpiredTracking() {
+    const now = new Date();
+    const result = await db
+      .update(orders)
+      .set({ trackingRevoked: true })
+      .where(
+        and(
+          eq(orders.trackingRevoked, false),
+          sql`${orders.trackingExpiresAt} IS NOT NULL AND ${orders.trackingExpiresAt} < ${now}`
+        )
+      )
+      .returning({ id: orders.id });
+    return result.length;
   }
 }
 

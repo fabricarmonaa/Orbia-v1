@@ -1,0 +1,258 @@
+Estás trabajando sobre el repo actual “Orbia” (ya implementado en Replit con Postgres/Drizzle y frontend React). NO reescribas desde cero. Tu objetivo es corregir/modificar el sistema para alinearlo a estos requisitos, manteniendo el producto funcionando.
+
+REGLAS
+
+No mocks: nada de respuestas falsas, nada de “demo-only” en runtime.
+
+Mantener Postgres/Drizzle por ahora (Replit), pero hacer cambios reales en DB y código.
+
+No romper endpoints existentes: si renombrás, mantené compatibilidad o alias.
+
+Cada cambio debe incluir migración o ajuste de schema correspondiente.
+
+Al finalizar, dejar un CHANGELOG.md con lo hecho + cómo probar.
+
+OBJETIVOS (en orden)
+1) Sucursales como “sub-tenant” real (scope BRANCH blindado)
+1.1 Agregar scope a users y enforce branch_id
+
+En shared/schema.ts (tabla users):
+
+agregar columna scope con default "TENANT" (valores: TENANT, BRANCH)
+
+asegurar que si scope="BRANCH" entonces branchId sea obligatorio a nivel lógica (validación en backend).
+
+En login tenant (/api/auth/login en server/routes.ts):
+
+incluir en el JWT: scope y branchId
+
+respuesta debe indicar a qué panel redirigir.
+
+1.2 Middleware branch-scope
+
+Crear helper/middleware enforceBranchScope(req):
+
+si req.user.scope === "BRANCH":
+
+forzar branchId = req.user.branchId
+
+bloquear acceso a recursos cross-branch
+
+Aplicar en TODOS los endpoints sensibles:
+
+orders, cash, expenses, products stock, dashboards.
+
+1.3 Frontend: panel sucursal
+
+En frontend, al loguear:
+
+si token trae scope=BRANCH, redirigir a /app/branch
+
+ese panel debe mostrar solo lo operativo de esa sucursal (orders + cash + stock si aplica).
+
+Un branch user NO debe ver dashboard consolidado ni selector de sucursal.
+
+Criterio de éxito: un usuario BRANCH no puede leer ni escribir en otra sucursal aunque cambie IDs a mano.
+
+2) Pedidos: auditoría “quién lo abrió” y “desde dónde”
+
+En shared/schema.ts (tabla orders):
+
+agregar:
+
+createdByUserId
+
+createdByScope (TENANT/BRANCH)
+
+createdByBranchId (nullable, pero set si scope=BRANCH)
+
+En server/routes.ts (create order):
+
+setear esos campos automáticamente desde JWT.
+
+si scope=BRANCH, forzar branchId al del token.
+
+En UI de tenant (listado pedidos):
+
+mostrar columnas:
+
+Sucursal / General
+
+Creado por (usuario)
+
+Badge si fue creado desde sucursal
+
+3) Stock por sucursal + modal de producto con stock visible
+3.1 DB: tabla stock por sucursal
+
+Crear en shared/schema.ts:
+
+product_stock_by_branch:
+
+tenantId, productId, branchId, stock
+
+unique (tenantId, productId, branchId)
+
+(opcional recomendado) stock_movements para auditoría.
+
+3.2 Backend endpoints
+
+En server/storage.ts:
+
+funciones para:
+
+get stock by branch for product
+
+update stock for a branch
+
+list stock by branch for tenant
+
+En server/routes.ts:
+
+al crear/editar producto:
+
+si existen sucursales, inicializar stock_by_branch en 0 para cada una (o solo cuando se use)
+
+endpoints:
+
+GET /api/products/:id/stock (devuelve stock por sucursal + total)
+
+PATCH /api/products/:id/stock (actualiza stock sucursal; branch scope solo puede su sucursal)
+
+3.3 Frontend modal producto (ya existe)
+
+En client/src/pages/products.tsx (o donde esté la pantalla):
+
+al hacer click en un producto, abrir modal (ya existe).
+
+dentro del modal mostrar:
+
+info del producto
+
+stock total
+
+tabla stock por sucursal si el tenant tiene sucursales habilitadas
+
+el botón “Exportar PDF” debe ser visible:
+
+en la pantalla de productos (arriba)
+
+y dentro del modal también
+
+4) STT: reemplazar OpenAI por microservicio Python real (FastAPI + faster-whisper)
+
+Actualmente hay imports desde server/replit_integrations/audio/* usando OpenAI. Debe reemplazarse.
+
+4.1 Crear ai-service/ (nuevo)
+
+FastAPI
+
+endpoint POST /stt/transcribe
+
+recibe multipart: audio + language + context
+
+usa faster-whisper modelo small (configurable env)
+
+devuelve JSON:
+
+transcript
+
+intent (CREATE_ORDER / CASH_MOVEMENT / CREATE_PRODUCT)
+
+extracted_fields (monto, cliente, notas, etc.)
+
+suggested_command { type, payload }
+
+No usar LLM obligatorio. Implementar parsing mínimo determinístico (regex + reglas).
+
+4.2 Node integra ai-service
+
+Agregar env: AI_SERVICE_URL
+
+Crear server/integrations/aiServiceClient.ts
+
+Reemplazar en server/routes.ts el flujo STT:
+
+POST /api/ai/stt:
+
+valida JWT
+
+requireFeature("stt")
+
+reenvía audio al Python service
+
+valida payload
+
+ejecuta el comando real (crear order / crear product / crear cash movement)
+
+guarda stt_logs en DB
+
+El frontend debe seguir pudiendo grabar audio y confirmar “Aplicar”.
+
+Importante: STT solo para plan ESCALA (feature flag stt).
+
+5) Tracking público temporal: expiración y purge job
+
+Asegurar que al cerrar pedido:
+
+se setee trackingExpiresAt = closedAt + tenantConfig.trackingRetentionHours
+
+Agregar un job simple (setInterval) en server:
+
+cada X minutos:
+
+revoca/expira links vencidos
+
+(opcional) marca órdenes como “purged” si corresponde
+
+Debe ser configurable por tenant (ya existe config; usarla).
+
+6) Seeds automáticos OFF
+
+Si hoy se ejecuta seedDatabase()/seedDeliveryData() automáticamente:
+
+cambiar para que solo corra si process.env.SEED === "true"
+
+En README explicar cómo seedear en dev.
+
+VALIDACIONES FINALES (obligatorio)
+
+Crear tenant + plan (owner) → login tenant
+
+Crear sucursal → crear usuario BRANCH para esa sucursal
+
+Loguear como BRANCH:
+
+ver solo pedidos/caja/stock de su sucursal
+
+Loguear como TENANT:
+
+ver pedidos con columna “Sucursal / quién lo abrió”
+
+Producto modal:
+
+stock por sucursal visible
+
+export PDF visible
+
+STT:
+
+plan ESCALA: audio → transcripción → crea pedido/movimiento real
+
+plan no escala: 403
+
+Tracking:
+
+link expira según config y job lo revoca
+
+ENTREGABLES
+
+Código funcionando
+
+CHANGELOG.md con pasos y pruebas manuales
+
+README.md actualizado (env vars: AI_SERVICE_URL, SEED, etc.)
+
+No romper build en Replit
+
+Empieza por el objetivo 1 y avanza en orden.
