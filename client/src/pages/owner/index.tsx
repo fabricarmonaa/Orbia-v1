@@ -21,6 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import {
   Building2,
   Plus,
@@ -29,10 +30,11 @@ import {
   LogOut,
   Shield,
   Search,
+  Truck,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { Tenant, Plan } from "@shared/schema";
+import type { Tenant, Plan, TenantAddon } from "@shared/schema";
 
 export default function OwnerDashboard() {
   const { user, isAuthenticated, logout } = useAuth();
@@ -43,6 +45,9 @@ export default function OwnerDashboard() {
   const [search, setSearch] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const { toast } = useToast();
+
+  const [addonStatus, setAddonStatus] = useState<Record<number, Record<string, boolean>>>({});
+  const [togglingAddon, setTogglingAddon] = useState<string | null>(null);
 
   const [newTenant, setNewTenant] = useState({
     code: "",
@@ -69,12 +74,47 @@ export default function OwnerDashboard() {
       ]);
       const tenantsData = await tenantsRes.json();
       const plansData = await plansRes.json();
-      setTenants(tenantsData.data || []);
+      const tenantsList: (Tenant & { plan?: Plan })[] = tenantsData.data || [];
+      setTenants(tenantsList);
       setPlans(plansData.data || []);
+      const addonMap: Record<number, Record<string, boolean>> = {};
+      await Promise.all(
+        tenantsList.map(async (t) => {
+          try {
+            const addonsRes = await apiRequest("GET", `/api/super/tenants/${t.id}/addons`);
+            const addonsData = await addonsRes.json();
+            const map: Record<string, boolean> = {};
+            (addonsData.data || []).forEach((a: TenantAddon) => {
+              map[a.addonKey] = a.enabled;
+            });
+            addonMap[t.id] = map;
+          } catch {
+            addonMap[t.id] = {};
+          }
+        })
+      );
+      setAddonStatus(addonMap);
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function toggleAddon(tenantId: number, addonKey: string, enabled: boolean) {
+    const key = `${tenantId}-${addonKey}`;
+    setTogglingAddon(key);
+    try {
+      await apiRequest("POST", `/api/super/tenants/${tenantId}/addons`, { addonKey, enabled });
+      setAddonStatus((prev) => ({
+        ...prev,
+        [tenantId]: { ...prev[tenantId], [addonKey]: enabled },
+      }));
+      toast({ title: enabled ? "Addon activado" : "Addon desactivado" });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally {
+      setTogglingAddon(null);
     }
   }
 
@@ -328,6 +368,16 @@ export default function OwnerDashboard() {
                         <Badge variant={tenant.isActive ? "default" : "secondary"}>
                           {tenant.isActive ? "Activo" : "Inactivo"}
                         </Badge>
+                        <div className="flex items-center gap-2">
+                          <Truck className="w-4 h-4 text-muted-foreground" />
+                          <Label className="text-xs text-muted-foreground whitespace-nowrap">Delivery</Label>
+                          <Switch
+                            checked={!!addonStatus[tenant.id]?.delivery}
+                            disabled={togglingAddon === `${tenant.id}-delivery`}
+                            onCheckedChange={(checked) => toggleAddon(tenant.id, "delivery", checked)}
+                            data-testid={`switch-delivery-addon-${tenant.id}`}
+                          />
+                        </div>
                         <Select
                           value={String(tenant.planId || "")}
                           onValueChange={(v) => changePlan(tenant.id, parseInt(v))}

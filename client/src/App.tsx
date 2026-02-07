@@ -10,6 +10,8 @@ import TenantLogin from "@/pages/tenant-login";
 import OwnerDashboard from "@/pages/owner/index";
 import AppLayout from "@/pages/app/layout";
 import PublicTracking from "@/pages/public-tracking";
+import DeliveryLogin from "@/pages/delivery-login";
+import DeliveryPanel from "@/pages/delivery-panel";
 
 function Router() {
   return (
@@ -21,6 +23,8 @@ function Router() {
       <Route path="/owner/login" component={SuperLogin} />
       <Route path="/owner" component={OwnerDashboard} />
       <Route path="/app/*?" component={AppLayout} />
+      <Route path="/delivery/login" component={DeliveryLogin} />
+      <Route path="/delivery/panel" component={DeliveryPanel} />
       <Route path="/tracking/:id" component={PublicTracking} />
       <Route component={NotFound} />
     </Switch>

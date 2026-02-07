@@ -5,6 +5,8 @@ import {
   orderStatuses, orders, orderStatusHistory, orderComments,
   cashSessions, cashMovements, expenseCategories, fixedExpenses,
   productCategories, products, sttLogs,
+  tenantAddons, deliveryAgents, deliveryActionStates,
+  deliveryRoutes, deliveryRouteStops, deliveryProofs,
   type InsertPlan, type Plan,
   type InsertTenant, type Tenant,
   type InsertUser, type User,
@@ -19,6 +21,12 @@ import {
   type InsertProductCategory, type ProductCategory,
   type InsertProduct, type Product,
   type InsertSttLog, type SttLog,
+  type InsertTenantAddon, type TenantAddon,
+  type InsertDeliveryAgent, type DeliveryAgent,
+  type InsertDeliveryActionState, type DeliveryActionState,
+  type InsertDeliveryRoute, type DeliveryRoute,
+  type InsertDeliveryRouteStop, type DeliveryRouteStop,
+  type InsertDeliveryProof, type DeliveryProof,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -107,6 +115,47 @@ export interface IStorage {
   getCashSessionsByBranch(tenantId: number, branchId: number): Promise<CashSession[]>;
   getCashMovementsByBranch(tenantId: number, branchId: number): Promise<CashMovement[]>;
   getBranchById(id: number, tenantId: number): Promise<Branch | undefined>;
+
+  // Tenant Addons
+  getTenantAddon(tenantId: number, addonKey: string): Promise<TenantAddon | undefined>;
+  getTenantAddons(tenantId: number): Promise<TenantAddon[]>;
+  upsertTenantAddon(data: InsertTenantAddon): Promise<TenantAddon>;
+
+  // Delivery Agents
+  getDeliveryAgents(tenantId: number): Promise<DeliveryAgent[]>;
+  getDeliveryAgentById(id: number, tenantId: number): Promise<DeliveryAgent | undefined>;
+  getDeliveryAgentByDni(dni: string, tenantId: number): Promise<DeliveryAgent | undefined>;
+  createDeliveryAgent(data: InsertDeliveryAgent): Promise<DeliveryAgent>;
+  updateDeliveryAgent(id: number, tenantId: number, data: Partial<InsertDeliveryAgent>): Promise<DeliveryAgent>;
+  toggleDeliveryAgentActive(id: number, tenantId: number, isActive: boolean): Promise<void>;
+
+  // Delivery Action States
+  getDeliveryActionStates(tenantId: number): Promise<DeliveryActionState[]>;
+  createDeliveryActionState(data: InsertDeliveryActionState): Promise<DeliveryActionState>;
+  updateDeliveryActionState(id: number, tenantId: number, data: Partial<InsertDeliveryActionState>): Promise<DeliveryActionState>;
+  deleteDeliveryActionState(id: number, tenantId: number): Promise<void>;
+
+  // Delivery Routes
+  getDeliveryRoutes(tenantId: number): Promise<DeliveryRoute[]>;
+  getDeliveryRoutesByAgent(agentId: number, tenantId: number): Promise<DeliveryRoute[]>;
+  getActiveRouteByAgent(agentId: number, tenantId: number): Promise<DeliveryRoute | undefined>;
+  getDeliveryRouteById(id: number, tenantId: number): Promise<DeliveryRoute | undefined>;
+  createDeliveryRoute(data: InsertDeliveryRoute): Promise<DeliveryRoute>;
+  completeDeliveryRoute(id: number, tenantId: number): Promise<void>;
+
+  // Delivery Route Stops
+  getRouteStops(routeId: number): Promise<DeliveryRouteStop[]>;
+  createRouteStop(data: InsertDeliveryRouteStop): Promise<DeliveryRouteStop>;
+  updateRouteStopAction(id: number, actionStateId: number): Promise<void>;
+
+  // Delivery Proofs
+  getDeliveryProofsByOrder(orderId: number): Promise<DeliveryProof[]>;
+  createDeliveryProof(data: InsertDeliveryProof): Promise<DeliveryProof>;
+
+  // Delivery-scoped orders
+  getDeliveryOrders(tenantId: number): Promise<Order[]>;
+  updateOrderDeliveryStatus(id: number, tenantId: number, status: string): Promise<void>;
+  assignDeliveryAgent(orderId: number, tenantId: number, agentId: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -508,6 +557,191 @@ export class DatabaseStorage implements IStorage {
       .from(branches)
       .where(and(eq(branches.id, id), eq(branches.tenantId, tenantId)));
     return branch;
+  }
+
+  // Tenant Addons
+  async getTenantAddon(tenantId: number, addonKey: string) {
+    const [addon] = await db
+      .select()
+      .from(tenantAddons)
+      .where(and(eq(tenantAddons.tenantId, tenantId), eq(tenantAddons.addonKey, addonKey)));
+    return addon;
+  }
+  async getTenantAddons(tenantId: number) {
+    return db.select().from(tenantAddons).where(eq(tenantAddons.tenantId, tenantId));
+  }
+  async upsertTenantAddon(data: InsertTenantAddon) {
+    const existing = await this.getTenantAddon(data.tenantId, data.addonKey);
+    if (existing) {
+      const [addon] = await db
+        .update(tenantAddons)
+        .set({ enabled: data.enabled, enabledById: data.enabledById, enabledAt: data.enabledAt })
+        .where(eq(tenantAddons.id, existing.id))
+        .returning();
+      return addon;
+    }
+    const [addon] = await db.insert(tenantAddons).values(data).returning();
+    return addon;
+  }
+
+  // Delivery Agents
+  async getDeliveryAgents(tenantId: number) {
+    return db.select().from(deliveryAgents).where(eq(deliveryAgents.tenantId, tenantId)).orderBy(desc(deliveryAgents.createdAt));
+  }
+  async getDeliveryAgentById(id: number, tenantId: number) {
+    const [agent] = await db
+      .select()
+      .from(deliveryAgents)
+      .where(and(eq(deliveryAgents.id, id), eq(deliveryAgents.tenantId, tenantId)));
+    return agent;
+  }
+  async getDeliveryAgentByDni(dni: string, tenantId: number) {
+    const [agent] = await db
+      .select()
+      .from(deliveryAgents)
+      .where(and(eq(deliveryAgents.dni, dni), eq(deliveryAgents.tenantId, tenantId)));
+    return agent;
+  }
+  async createDeliveryAgent(data: InsertDeliveryAgent) {
+    const [agent] = await db.insert(deliveryAgents).values(data).returning();
+    return agent;
+  }
+  async updateDeliveryAgent(id: number, tenantId: number, data: Partial<InsertDeliveryAgent>) {
+    const [agent] = await db
+      .update(deliveryAgents)
+      .set(data)
+      .where(and(eq(deliveryAgents.id, id), eq(deliveryAgents.tenantId, tenantId)))
+      .returning();
+    return agent;
+  }
+  async toggleDeliveryAgentActive(id: number, tenantId: number, isActive: boolean) {
+    await db
+      .update(deliveryAgents)
+      .set({ isActive })
+      .where(and(eq(deliveryAgents.id, id), eq(deliveryAgents.tenantId, tenantId)));
+  }
+
+  // Delivery Action States
+  async getDeliveryActionStates(tenantId: number) {
+    return db
+      .select()
+      .from(deliveryActionStates)
+      .where(eq(deliveryActionStates.tenantId, tenantId))
+      .orderBy(deliveryActionStates.sortOrder);
+  }
+  async createDeliveryActionState(data: InsertDeliveryActionState) {
+    const [state] = await db.insert(deliveryActionStates).values(data).returning();
+    return state;
+  }
+  async updateDeliveryActionState(id: number, tenantId: number, data: Partial<InsertDeliveryActionState>) {
+    const [state] = await db
+      .update(deliveryActionStates)
+      .set(data)
+      .where(and(eq(deliveryActionStates.id, id), eq(deliveryActionStates.tenantId, tenantId)))
+      .returning();
+    return state;
+  }
+  async deleteDeliveryActionState(id: number, tenantId: number) {
+    await db
+      .delete(deliveryActionStates)
+      .where(and(eq(deliveryActionStates.id, id), eq(deliveryActionStates.tenantId, tenantId)));
+  }
+
+  // Delivery Routes
+  async getDeliveryRoutes(tenantId: number) {
+    return db
+      .select()
+      .from(deliveryRoutes)
+      .where(eq(deliveryRoutes.tenantId, tenantId))
+      .orderBy(desc(deliveryRoutes.startedAt));
+  }
+  async getDeliveryRoutesByAgent(agentId: number, tenantId: number) {
+    return db
+      .select()
+      .from(deliveryRoutes)
+      .where(and(eq(deliveryRoutes.agentId, agentId), eq(deliveryRoutes.tenantId, tenantId)))
+      .orderBy(desc(deliveryRoutes.startedAt));
+  }
+  async getActiveRouteByAgent(agentId: number, tenantId: number) {
+    const [route] = await db
+      .select()
+      .from(deliveryRoutes)
+      .where(and(
+        eq(deliveryRoutes.agentId, agentId),
+        eq(deliveryRoutes.tenantId, tenantId),
+        eq(deliveryRoutes.status, "active")
+      ));
+    return route;
+  }
+  async getDeliveryRouteById(id: number, tenantId: number) {
+    const [route] = await db
+      .select()
+      .from(deliveryRoutes)
+      .where(and(eq(deliveryRoutes.id, id), eq(deliveryRoutes.tenantId, tenantId)));
+    return route;
+  }
+  async createDeliveryRoute(data: InsertDeliveryRoute) {
+    const [route] = await db.insert(deliveryRoutes).values(data).returning();
+    return route;
+  }
+  async completeDeliveryRoute(id: number, tenantId: number) {
+    await db
+      .update(deliveryRoutes)
+      .set({ status: "completed", completedAt: new Date() })
+      .where(and(eq(deliveryRoutes.id, id), eq(deliveryRoutes.tenantId, tenantId)));
+  }
+
+  // Delivery Route Stops
+  async getRouteStops(routeId: number) {
+    return db
+      .select()
+      .from(deliveryRouteStops)
+      .where(eq(deliveryRouteStops.routeId, routeId))
+      .orderBy(deliveryRouteStops.stopOrder);
+  }
+  async createRouteStop(data: InsertDeliveryRouteStop) {
+    const [stop] = await db.insert(deliveryRouteStops).values(data).returning();
+    return stop;
+  }
+  async updateRouteStopAction(id: number, actionStateId: number) {
+    await db
+      .update(deliveryRouteStops)
+      .set({ actionStateId, actionAt: new Date() })
+      .where(eq(deliveryRouteStops.id, id));
+  }
+
+  // Delivery Proofs
+  async getDeliveryProofsByOrder(orderId: number) {
+    return db
+      .select()
+      .from(deliveryProofs)
+      .where(eq(deliveryProofs.orderId, orderId))
+      .orderBy(desc(deliveryProofs.createdAt));
+  }
+  async createDeliveryProof(data: InsertDeliveryProof) {
+    const [proof] = await db.insert(deliveryProofs).values(data).returning();
+    return proof;
+  }
+
+  // Delivery-scoped orders
+  async getDeliveryOrders(tenantId: number) {
+    return db
+      .select()
+      .from(orders)
+      .where(and(eq(orders.tenantId, tenantId), eq(orders.requiresDelivery, true)))
+      .orderBy(desc(orders.createdAt));
+  }
+  async updateOrderDeliveryStatus(id: number, tenantId: number, status: string) {
+    await db
+      .update(orders)
+      .set({ deliveryStatus: status, updatedAt: new Date() })
+      .where(and(eq(orders.id, id), eq(orders.tenantId, tenantId)));
+  }
+  async assignDeliveryAgent(orderId: number, tenantId: number, agentId: number) {
+    await db
+      .update(orders)
+      .set({ assignedAgentId: agentId, deliveryStatus: "assigned", updatedAt: new Date() })
+      .where(and(eq(orders.id, orderId), eq(orders.tenantId, tenantId)));
   }
 }
 

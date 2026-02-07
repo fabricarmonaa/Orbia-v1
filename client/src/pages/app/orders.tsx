@@ -30,6 +30,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Switch } from "@/components/ui/switch";
 import {
   Plus,
   Search,
@@ -42,6 +43,9 @@ import {
   Send,
   X,
   Mic,
+  Truck,
+  MapPin,
+  Camera,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { Order, OrderStatus, OrderComment, OrderStatusHistory, Branch } from "@shared/schema";
@@ -65,6 +69,7 @@ export default function OrdersPage() {
   const [showVoice, setShowVoice] = useState(false);
   const { toast } = useToast();
 
+  const [addonStatus, setAddonStatus] = useState<Record<string, boolean>>({});
   const [newOrder, setNewOrder] = useState({
     type: "PEDIDO",
     customerName: "",
@@ -73,10 +78,17 @@ export default function OrdersPage() {
     description: "",
     totalAmount: "",
     statusId: "",
+    requiresDelivery: false,
+    deliveryAddress: "",
+    deliveryAddressNotes: "",
   });
 
   useEffect(() => {
     fetchData();
+    apiRequest("GET", "/api/addons/status")
+      .then((r) => r.json())
+      .then((d) => setAddonStatus(d.data || {}))
+      .catch(() => {});
   }, []);
 
   async function fetchData() {
@@ -106,10 +118,13 @@ export default function OrdersPage() {
         ...newOrder,
         totalAmount: newOrder.totalAmount ? parseFloat(newOrder.totalAmount) : null,
         statusId: newOrder.statusId ? parseInt(newOrder.statusId) : null,
+        requiresDelivery: newOrder.requiresDelivery,
+        deliveryAddress: newOrder.requiresDelivery ? newOrder.deliveryAddress : null,
+        deliveryAddressNotes: newOrder.requiresDelivery ? newOrder.deliveryAddressNotes : null,
       });
       toast({ title: "Pedido creado" });
       setDialogOpen(false);
-      setNewOrder({ type: "PEDIDO", customerName: "", customerPhone: "", customerEmail: "", description: "", totalAmount: "", statusId: "" });
+      setNewOrder({ type: "PEDIDO", customerName: "", customerPhone: "", customerEmail: "", description: "", totalAmount: "", statusId: "", requiresDelivery: false, deliveryAddress: "", deliveryAddressNotes: "" });
       fetchData();
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -204,6 +219,9 @@ export default function OrdersPage() {
       description: intent.description || "",
       totalAmount: intent.totalAmount ? String(intent.totalAmount) : "",
       statusId: "",
+      requiresDelivery: false,
+      deliveryAddress: "",
+      deliveryAddressNotes: "",
     });
     setShowVoice(false);
     setDialogOpen(true);
@@ -318,6 +336,43 @@ export default function OrdersPage() {
                   data-testid="input-description"
                 />
               </div>
+              {addonStatus.delivery && (
+                <div className="space-y-3 p-3 rounded-md bg-muted/50">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-2">
+                      <Truck className="w-4 h-4 text-muted-foreground" />
+                      <Label className="text-sm">Requiere delivery</Label>
+                    </div>
+                    <Switch
+                      checked={newOrder.requiresDelivery}
+                      onCheckedChange={(v) => setNewOrder({ ...newOrder, requiresDelivery: v })}
+                      data-testid="switch-requires-delivery"
+                    />
+                  </div>
+                  {newOrder.requiresDelivery && (
+                    <>
+                      <div className="space-y-2">
+                        <Label>Dirección de entrega</Label>
+                        <Input
+                          placeholder="Calle, número, ciudad..."
+                          value={newOrder.deliveryAddress}
+                          onChange={(e) => setNewOrder({ ...newOrder, deliveryAddress: e.target.value })}
+                          data-testid="input-delivery-address"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Notas de delivery</Label>
+                        <Input
+                          placeholder="Indicaciones especiales..."
+                          value={newOrder.deliveryAddressNotes}
+                          onChange={(e) => setNewOrder({ ...newOrder, deliveryAddressNotes: e.target.value })}
+                          data-testid="input-delivery-notes"
+                        />
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
               <Button type="submit" className="w-full" data-testid="button-submit-order">
                 Crear Pedido
               </Button>
@@ -485,6 +540,26 @@ export default function OrdersPage() {
                     <div>
                       <Label className="text-muted-foreground">Descripción</Label>
                       <p className="text-sm mt-1">{selectedOrder.description}</p>
+                    </div>
+                  )}
+                  {selectedOrder.requiresDelivery && (
+                    <div className="space-y-2 p-3 rounded-md bg-muted/50">
+                      <div className="flex items-center gap-2">
+                        <Truck className="w-4 h-4 text-primary" />
+                        <Label className="font-medium">Delivery</Label>
+                        {selectedOrder.deliveryStatus && (
+                          <Badge variant="secondary">{selectedOrder.deliveryStatus}</Badge>
+                        )}
+                      </div>
+                      {selectedOrder.deliveryAddress && (
+                        <div className="flex items-start gap-2">
+                          <MapPin className="w-3 h-3 mt-1 text-muted-foreground flex-shrink-0" />
+                          <span className="text-sm">{selectedOrder.deliveryAddress}</span>
+                        </div>
+                      )}
+                      {selectedOrder.deliveryAddressNotes && (
+                        <p className="text-sm text-muted-foreground">{selectedOrder.deliveryAddressNotes}</p>
+                      )}
                     </div>
                   )}
                 </div>

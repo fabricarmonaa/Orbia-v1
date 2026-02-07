@@ -1,4 +1,6 @@
+import { useState, useEffect } from "react";
 import { useLocation, Link } from "wouter";
+import { apiRequest } from "@/lib/auth";
 import {
   Sidebar,
   SidebarContent,
@@ -20,6 +22,7 @@ import {
   Settings,
   LogOut,
   Lock,
+  Truck,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { usePlan } from "@/lib/plan";
@@ -32,6 +35,7 @@ interface MenuItem {
   url: string;
   icon: any;
   feature?: string;
+  addon?: string;
 }
 
 const menuItems: MenuItem[] = [
@@ -40,6 +44,7 @@ const menuItems: MenuItem[] = [
   { title: "Caja", url: "/app/cash", icon: Wallet },
   { title: "Productos", url: "/app/products", icon: Package, feature: "products" },
   { title: "Sucursales", url: "/app/branches", icon: Building2, feature: "branches" },
+  { title: "Delivery", url: "/app/delivery", icon: Truck, addon: "delivery" },
   { title: "Configuración", url: "/app/settings", icon: Settings },
 ];
 
@@ -47,6 +52,14 @@ export function AppSidebar() {
   const [location] = useLocation();
   const { user, logout } = useAuth();
   const { plan, hasFeature } = usePlan();
+  const [addonStatus, setAddonStatus] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    apiRequest("GET", "/api/addons/status")
+      .then((r) => r.json())
+      .then((d) => setAddonStatus(d.data || {}))
+      .catch(() => {});
+  }, []);
 
   function isActive(url: string) {
     if (url === "/app") return location === "/app";
@@ -90,7 +103,9 @@ export function AppSidebar() {
           <SidebarGroupLabel>Menú</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {menuItems.map((item) => {
+              {menuItems
+                .filter((item) => !item.addon || addonStatus[item.addon])
+                .map((item) => {
                 const blocked = item.feature && !hasFeature(item.feature);
                 return (
                   <SidebarMenuItem key={item.title}>

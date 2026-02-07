@@ -1,7 +1,7 @@
 import { storage } from "./storage";
 import { hashPassword } from "./auth";
 import { db } from "./db";
-import { users, plans, tenants } from "@shared/schema";
+import { users, plans, tenants, deliveryAgents, tenantAddons } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
 
 export async function seedDatabase() {
@@ -369,5 +369,90 @@ export async function seedDatabase() {
     console.log("---");
   } catch (err) {
     console.error("Seed error:", err);
+  }
+}
+
+export async function seedDeliveryData() {
+  try {
+    const demoTenant = await storage.getTenantByCode("demo");
+    if (!demoTenant) return;
+
+    const existingAddons = await storage.getTenantAddons(demoTenant.id);
+    if (existingAddons.some((a) => a.addonKey === "delivery")) {
+      console.log("Seed: Delivery data already seeded, skipping.");
+      return;
+    }
+
+    const superAdmin = await storage.getSuperAdminByEmail("admin@orbia.app");
+    if (!superAdmin) return;
+
+    await storage.upsertTenantAddon({
+      tenantId: demoTenant.id,
+      addonKey: "delivery",
+      enabled: true,
+      enabledById: superAdmin.id,
+      enabledAt: new Date(),
+    });
+    console.log("Seed: Delivery addon enabled for demo tenant");
+
+    const pinHash = await hashPassword("1234");
+    const agent1 = await storage.createDeliveryAgent({
+      tenantId: demoTenant.id,
+      dni: "30123456",
+      firstName: "Carlos",
+      lastName: "Gómez",
+      phone: "+54 11 5555-1111",
+      pinHash,
+      isActive: true,
+    });
+    const agent2 = await storage.createDeliveryAgent({
+      tenantId: demoTenant.id,
+      dni: "30654321",
+      firstName: "María",
+      lastName: "López",
+      phone: "+54 11 5555-2222",
+      pinHash,
+      isActive: true,
+    });
+    console.log("Seed: 2 delivery agents created (PIN: 1234)");
+
+    const orderStatuses = await storage.getOrderStatuses(demoTenant.id);
+    const entregadoStatus = orderStatuses.find((s) => s.name.toLowerCase().includes("entregado") || s.name.toLowerCase().includes("completo"));
+
+    await storage.createDeliveryActionState({
+      tenantId: demoTenant.id,
+      code: "ENTREGADO",
+      label: "Entregado",
+      requiresPhoto: true,
+      requiresComment: false,
+      nextOrderStatusId: entregadoStatus?.id || null,
+      sortOrder: 1,
+    });
+    await storage.createDeliveryActionState({
+      tenantId: demoTenant.id,
+      code: "NO_ENCONTRADO",
+      label: "No encontrado",
+      requiresPhoto: false,
+      requiresComment: true,
+      nextOrderStatusId: null,
+      sortOrder: 2,
+    });
+    await storage.createDeliveryActionState({
+      tenantId: demoTenant.id,
+      code: "RECHAZADO",
+      label: "Rechazado",
+      requiresPhoto: true,
+      requiresComment: true,
+      nextOrderStatusId: null,
+      sortOrder: 3,
+    });
+    console.log("Seed: 3 delivery action states created");
+
+    console.log("---");
+    console.log("Delivery Login: tenant=demo, DNI=30123456, PIN=1234");
+    console.log("Delivery Login: tenant=demo, DNI=30654321, PIN=1234");
+    console.log("---");
+  } catch (err) {
+    console.error("Seed delivery error:", err);
   }
 }

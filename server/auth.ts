@@ -12,6 +12,8 @@ export interface JWTPayload {
   tenantId: number | null;
   isSuperAdmin: boolean;
   branchId: number | null;
+  scope?: string;
+  deliveryAgentId?: number;
 }
 
 export interface PlanFeatures {
@@ -142,4 +144,44 @@ export function requireFeature(featureKey: string) {
       return res.status(500).json({ error: "Error verificando plan" });
     }
   };
+}
+
+export function requireAddon(addonKey: string) {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const tenantId = req.auth?.tenantId;
+      if (!tenantId) {
+        return res.status(403).json({ error: "Acceso denegado" });
+      }
+      const addon = await storage.getTenantAddon(tenantId, addonKey);
+      if (!addon?.enabled) {
+        return res.status(403).json({
+          error: "Este addon no está habilitado para tu negocio",
+          code: "ADDON_NOT_ENABLED",
+          addon: addonKey,
+        });
+      }
+      next();
+    } catch {
+      return res.status(500).json({ error: "Error verificando addon" });
+    }
+  };
+}
+
+export function deliveryAuth(req: Request, res: Response, next: NextFunction) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ error: "Token requerido" });
+    }
+    const token = authHeader.substring(7);
+    const payload = verifyToken(token);
+    if (payload.scope !== "DELIVERY" || !payload.deliveryAgentId) {
+      return res.status(403).json({ error: "Acceso denegado: se requiere token de delivery" });
+    }
+    req.auth = payload;
+    next();
+  } catch {
+    return res.status(401).json({ error: "Token inválido" });
+  }
 }

@@ -61,8 +61,9 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  const { seedDatabase } = await import("./seed");
+  const { seedDatabase, seedDeliveryData } = await import("./seed");
   await seedDatabase();
+  await seedDeliveryData();
 
   await registerRoutes(httpServer, app);
 
