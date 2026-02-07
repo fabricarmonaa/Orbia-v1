@@ -124,7 +124,7 @@ export default function ProductsPage() {
     e.preventDefault();
     if (!editingProduct) return;
     try {
-      await apiRequest("PATCH", `/api/products/${editingProduct.id}`, {
+      await apiRequest("PUT", `/api/products/${editingProduct.id}`, {
         name: editForm.name,
         description: editForm.description,
         price: parseFloat(editForm.price),

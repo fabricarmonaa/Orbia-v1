@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useRoute, useLocation } from "wouter";
+import { useParams, useLocation } from "wouter";
 import { apiRequest } from "@/lib/auth";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -20,7 +20,7 @@ import { useToast } from "@/hooks/use-toast";
 import type { Branch, Order, CashMovement } from "@shared/schema";
 
 export default function BranchDetailPage() {
-  const [, params] = useRoute("/app/branches/:branchId");
+  const params = useParams<{ branchId: string }>();
   const [, setLocation] = useLocation();
   const branchId = params?.branchId;
   const [branch, setBranch] = useState<Branch | null>(null);

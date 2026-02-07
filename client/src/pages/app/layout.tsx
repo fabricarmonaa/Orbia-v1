@@ -44,13 +44,13 @@ export default function AppLayout() {
           </header>
           <main className="flex-1 overflow-auto p-4 sm:p-6">
             <Switch>
-              <Route path="/app" component={Dashboard} />
               <Route path="/app/orders" component={OrdersPage} />
               <Route path="/app/cash" component={CashPage} />
               <Route path="/app/products" component={ProductsPage} />
               <Route path="/app/branches/:branchId" component={BranchDetailPage} />
               <Route path="/app/branches" component={BranchesPage} />
               <Route path="/app/settings" component={SettingsPage} />
+              <Route path="/app" component={Dashboard} />
             </Switch>
           </main>
         </div>

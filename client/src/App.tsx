@@ -20,8 +20,7 @@ function Router() {
       <Route path="/login" component={TenantLogin} />
       <Route path="/owner/login" component={SuperLogin} />
       <Route path="/owner" component={OwnerDashboard} />
-      <Route path="/app/:rest*" component={AppLayout} />
-      <Route path="/app" component={AppLayout} />
+      <Route path="/app/*?" component={AppLayout} />
       <Route path="/tracking/:id" component={PublicTracking} />
       <Route component={NotFound} />
     </Switch>
