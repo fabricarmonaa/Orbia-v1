@@ -1,0 +1,339 @@
+STT por voz (solo plan ESCALA) — cómo tiene que funcionar, end-to-end
+1) Dónde aparece y quién lo puede usar
+
+El botón de voz aparece solo si el tenant tiene feature stt_enabled=true (Plan ESCALA).
+
+Si el plan no lo tiene:
+
+el UI no muestra el botón 🎙️
+
+y el backend bloquea igual con 403 FEATURE_NOT_ENABLED (por si alguien fuerza requests).
+
+2) Experiencia de usuario (Frontend)
+
+En formularios operativos va a existir un componente “Carga por voz” que sirve para:
+
+Crear pedido por voz
+
+Registrar movimiento de caja por voz
+
+Crear producto por voz
+
+Flujo UI (siempre el mismo):
+
+Usuario elige contexto: PEDIDOS, CAJA, PRODUCTOS.
+
+(Opcional pero recomendado) elige Sucursal donde impactará (si está en panel de sucursal ya viene fijada).
+
+Toca Grabar → se graba audio (MediaRecorder) y se muestra un timer.
+
+Toca Detener → se sube el audio.
+
+Se muestra:
+
+Transcripción
+
+Acción detectada (ej: “crear pedido”, “ingreso caja”, “crear producto”)
+
+Campos extraídos (cliente, monto, fecha, ítems…)
+
+Usuario confirma:
+
+Aplicar (ejecuta comando real y crea/actualiza la entidad)
+
+o Editar (corrige campos antes de aplicar)
+
+o Cancelar.
+
+3) Flujo técnico (Backend Node → Python → Node → DB)
+
+No hay mocks. Es siempre real.
+
+A) Frontend → Node
+
+POST /ai/stt (tenant protegido)
+
+multipart/form-data con:
+
+audio (blob)
+
+context = orders | cash | products
+
+branch_id (si aplica)
+
+language (default es-AR)
+
+timezone (para parsear “mañana”, etc.)
+
+B) Node valida
+
+JWT ok, tenant ok
+
+requireFeature('stt')
+
+branch belongs to tenant si mandan branch_id
+
+rate limit (por usuario/tenant, ej. minutos de audio al mes)
+
+C) Node reenvía al microservicio Python
+
+POST http://ai-service/stt/transcribe
+
+manda audio + metadata + request_id
+
+firma interna (ej. X-ORBIA-SIGNATURE) para que nadie externo le pegue.
+
+D) Python devuelve resultado estructurado
+Respuesta ejemplo:
+
+{
+  "transcript": "crear pedido para Juan Pérez mañana a las 10, cambiar pantalla, seña de 5000",
+  "intent": "CREATE_ORDER",
+  "confidence": 0.86,
+  "entities": {
+    "customer_name": "Juan Pérez",
+    "scheduled_at": "2026-02-07T10:00:00-03:00",
+    "notes": "cambiar pantalla",
+    "deposit_amount": 5000
+  },
+  "suggested_command": {
+    "type": "orders.create",
+    "payload": { ... }
+  }
+}
+
+
+E) Node ejecuta comando real
+
+Mapea suggested_command a CommandHandlers (DDD/CQRS):
+
+orders.create
+
+cash.addMovement
+
+products.create
+
+Revalida reglas de negocio (no confiar ciegamente en la IA):
+
+existencia de sucursal
+
+límites por plan
+
+campos mínimos
+
+Persiste en MySQL
+
+Devuelve al frontend el recurso creado.
+
+F) Auditoría obligatoria
+
+Siempre guardar:
+
+transcript
+
+intent
+
+resultado aplicado (qué comando se ejecutó)
+
+user_id, tenant_id, branch_id
+
+timestamps
+en tabla stt_logs.
+
+4) Qué “entiende” la voz (MVP realista)
+
+Pedidos
+
+“crear pedido/turno/servicio para [cliente]”
+
+“para mañana / hoy / el lunes / a las 10”
+
+“nota: …”
+
+“estado inicial …” (opcional)
+
+Caja
+
+“ingreso 15000 por efectivo / transferencia”
+
+“egreso 7000 de repuestos / alquiler”
+
+“categoría …”
+
+Productos
+
+“crear producto [nombre] precio [x] costo [y] stock [z] categoría [c]”
+
+Importante: si no se puede extraer algo, devuelve “missing_fields” y el UI pide completar antes de aplicar.
+
+Sucursales — cómo tienen que funcionar (sub-tenants con panel por sucursal)
+1) Qué son realmente
+
+Una Sucursal (branch) es una “sub-entidad” del tenant:
+
+NO es un tenant aparte
+
+pero se comporta como un sub-espacio con:
+
+panel propio
+
+recursos filtrados por esa sucursal (pedidos, caja, stock, etc.)
+
+Todo sigue bajo el mismo tenant_id, y además se suma branch_id.
+
+2) Roles y accesos
+
+Usuario tenant puede tener:
+
+scope = TENANT (ve todo, consolidado)
+
+scope = BRANCH (solo ve su sucursal)
+
+En JWT:
+
+tenant_id
+
+role
+
+branch_id opcional (si es usuario de sucursal)
+
+Middleware:
+
+si token trae branch_id, fuerza filtro por esa sucursal en endpoints branch-scoped.
+
+3) Paneles y rutas
+
+Frontend:
+
+Panel Tenant (consolidado): /app/dashboard
+
+Panel Sucursal: /app/branches/:branchId
+
+cambia sidebar/títulos (“Sucursal X”)
+
+muestra solo lo necesario de operación de sucursal
+
+4) Pedidos por sucursal y trazabilidad (quién lo abrió)
+
+En orders guardar:
+
+tenant_id
+
+branch_id (nullable para “general” si el tenant crea algo fuera de sucursales)
+
+created_by_user_id
+
+created_by_scope (TENANT | BRANCH)
+
+opcional: created_by_branch_id (si querés redundancia clara)
+
+Reglas:
+
+Si se crea desde panel sucursal: branch_id = esa sucursal, created_by_scope=BRANCH.
+
+Si se crea desde panel tenant:
+
+puede elegir sucursal o “general”
+
+created_by_scope=TENANT.
+
+En el panel tenant:
+
+listado de pedidos debe mostrar una columna:
+
+Sucursal (o “General”)
+
+Creado por (usuario)
+
+y si fue desde sucursal: badge “Sucursal”.
+
+5) Caja y stock por sucursal según plan
+
+Caja funciona por tenant, pero puede estar segmentada por sucursal:
+
+cash_sessions.branch_id
+
+cash_movements.branch_id
+
+Restricción por plan:
+
+Económico: caja simple (y 1 sucursal)
+
+Profesional: caja completa + hasta 3 sucursales
+
+Escala: todo + más sucursales
+
+Dashboard tenant:
+
+consolida movimientos de todas las sucursales
+
+permite filtrar por sucursal
+
+6) Impacto en dashboard del tenant (siempre)
+
+Todo evento operativo (pedido creado, estado cambiado, movimiento de caja, gasto) debe:
+
+quedar registrado con branch_id si aplica
+
+alimentar los KPIs:
+
+pedidos por estado
+
+ingresos/egresos por período
+
+ganancia por período
+
+ranking por sucursal
+
+Productos — edición con popup + stock + export visible
+1) Comportamiento en UI
+
+En la lista/grilla de productos:
+
+hacer click en un producto abre Modal/Popup con:
+
+nombre, categoría, precio, costo, margen
+
+stock total y stock por sucursal (si hay sucursales habilitadas)
+
+estado (activo/inactivo)
+
+últimos movimientos de stock (opcional MVP+)
+
+botones:
+
+Guardar cambios
+
+Eliminar/Desactivar
+
+Exportar (siempre visible donde corresponda)
+
+2) Exportación
+
+Botón “Exportar lista” visible en:
+
+pantalla de productos (arriba a la derecha)
+
+y también dentro del modal (para que sea obvio)
+
+Endpoint:
+
+GET /products/export/pdf?category=&search=&branch_id=
+
+El PDF debe respetar:
+
+branding del tenant (logo/nombre)
+
+moneda
+
+filtro por categoría/búsqueda
+
+3) Stock
+
+Si el plan habilita sucursales, el modal debe mostrar:
+
+stock total
+
+tabla “stock por sucursal”
+
+Si no, solo “stock total”.
