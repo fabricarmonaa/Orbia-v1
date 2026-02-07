@@ -11,6 +11,7 @@ import {
   getTenantPlan,
 } from "./auth";
 import { randomUUID } from "crypto";
+import { speechToText, ensureCompatibleFormat, openai } from "./replit_integrations/audio/client";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -576,6 +577,175 @@ export async function registerRoutes(
         categoryId: req.body.categoryId || null,
       });
       res.status(201).json({ data });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ==================== STT / AI ====================
+  app.post("/api/ai/stt", tenantAuth, requireFeature("stt"), async (req, res) => {
+    try {
+      const { audio, context } = req.body;
+      if (!audio || !context) {
+        return res.status(400).json({ error: "Audio y contexto requeridos" });
+      }
+      const validContexts = ["orders", "cash", "products"];
+      if (!validContexts.includes(context)) {
+        return res.status(400).json({ error: "Contexto inválido" });
+      }
+
+      const audioBuffer = Buffer.from(audio, "base64");
+      const { buffer: compatBuffer, format } = await ensureCompatibleFormat(audioBuffer);
+      const transcription = await speechToText(compatBuffer, format);
+
+      if (!transcription || transcription.trim().length === 0) {
+        return res.status(400).json({ error: "No se pudo transcribir el audio" });
+      }
+
+      const systemPrompts: Record<string, string> = {
+        orders: `Sos un asistente para un sistema de gestión de pedidos en español argentino.
+El usuario dicta un pedido por voz. Extraé la intención en formato JSON.
+Campos posibles: { "action": "create_order", "customerName": string, "customerPhone": string, "description": string, "totalAmount": number, "type": "PEDIDO"|"ENCARGO"|"TURNO"|"SERVICIO" }
+Si no podés extraer algún campo, omitilo. Respondé SOLO con el JSON, sin texto adicional.`,
+        cash: `Sos un asistente para un sistema de caja/tesorería en español argentino.
+El usuario dicta un movimiento de caja por voz. Extraé la intención en formato JSON.
+Campos posibles: { "action": "create_movement", "type": "ingreso"|"egreso", "amount": number, "method": "efectivo"|"transferencia"|"tarjeta"|"mercadopago", "category": string, "description": string }
+Si no podés extraer algún campo, omitilo. Respondé SOLO con el JSON, sin texto adicional.`,
+        products: `Sos un asistente para un sistema de catálogo de productos en español argentino.
+El usuario dicta un producto por voz. Extraé la intención en formato JSON.
+Campos posibles: { "action": "create_product", "name": string, "description": string, "price": number, "cost": number, "stock": number, "sku": string }
+Si no podés extraer algún campo, omitilo. Respondé SOLO con el JSON, sin texto adicional.`,
+      };
+
+      const intentResponse = await openai.chat.completions.create({
+        model: "gpt-4.1-mini",
+        messages: [
+          { role: "system", content: systemPrompts[context] },
+          { role: "user", content: transcription },
+        ],
+        temperature: 0.1,
+      });
+
+      let intentJson: any = null;
+      const rawIntent = intentResponse.choices[0]?.message?.content || "";
+      try {
+        const cleaned = rawIntent.replace(/```json?\n?/g, "").replace(/```/g, "").trim();
+        intentJson = JSON.parse(cleaned);
+      } catch {
+        intentJson = { raw: rawIntent };
+      }
+
+      await storage.createSttLog({
+        tenantId: req.auth!.tenantId!,
+        userId: req.auth!.userId,
+        context,
+        transcription,
+        intentJson,
+        confirmed: false,
+      });
+
+      res.json({
+        data: {
+          transcription,
+          intent: intentJson,
+          context,
+        },
+      });
+    } catch (err: any) {
+      console.error("STT error:", err);
+      res.status(500).json({ error: "Error procesando audio: " + (err.message || "desconocido") });
+    }
+  });
+
+  // ==================== PRODUCT UPDATES ====================
+  app.put("/api/products/:id", tenantAuth, requireFeature("products"), async (req, res) => {
+    try {
+      const tenantId = req.auth!.tenantId!;
+      const productId = parseInt(req.params.id);
+      const existing = await storage.getProductById(productId, tenantId);
+      if (!existing) return res.status(404).json({ error: "Producto no encontrado" });
+
+      const updateData: any = {};
+      if (req.body.name !== undefined) updateData.name = req.body.name;
+      if (req.body.description !== undefined) updateData.description = req.body.description;
+      if (req.body.price !== undefined) updateData.price = String(req.body.price);
+      if (req.body.cost !== undefined) updateData.cost = req.body.cost !== null ? String(req.body.cost) : null;
+      if (req.body.stock !== undefined) updateData.stock = req.body.stock;
+      if (req.body.sku !== undefined) updateData.sku = req.body.sku;
+      if (req.body.categoryId !== undefined) updateData.categoryId = req.body.categoryId;
+
+      const product = await storage.updateProduct(productId, tenantId, updateData);
+      res.json({ data: product });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.patch("/api/products/:id/toggle", tenantAuth, requireFeature("products"), async (req, res) => {
+    try {
+      const tenantId = req.auth!.tenantId!;
+      const productId = parseInt(req.params.id);
+      const existing = await storage.getProductById(productId, tenantId);
+      if (!existing) return res.status(404).json({ error: "Producto no encontrado" });
+      await storage.toggleProductActive(productId, tenantId, !existing.isActive);
+      res.json({ data: { isActive: !existing.isActive } });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/products/export", tenantAuth, requireFeature("products"), async (req, res) => {
+    try {
+      const tenantId = req.auth!.tenantId!;
+      const allProducts = await storage.getProducts(tenantId);
+      const categories = await storage.getProductCategories(tenantId);
+      const catMap = new Map(categories.map((c) => [c.id, c.name]));
+
+      const csvHeader = "Nombre,Descripción,Precio,Costo,Stock,SKU,Categoría,Activo\n";
+      const csvRows = allProducts.map((p) => {
+        const catName = p.categoryId ? catMap.get(p.categoryId) || "" : "";
+        return [
+          `"${(p.name || "").replace(/"/g, '""')}"`,
+          `"${(p.description || "").replace(/"/g, '""')}"`,
+          p.price || "",
+          p.cost || "",
+          p.stock ?? "",
+          `"${(p.sku || "").replace(/"/g, '""')}"`,
+          `"${catName.replace(/"/g, '""')}"`,
+          p.isActive ? "Sí" : "No",
+        ].join(",");
+      });
+
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", "attachment; filename=productos.csv");
+      res.send("\uFEFF" + csvHeader + csvRows.join("\n"));
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ==================== BRANCH-SCOPED QUERIES ====================
+  app.get("/api/branches/:branchId/orders", tenantAuth, requireFeature("branches"), async (req, res) => {
+    try {
+      const tenantId = req.auth!.tenantId!;
+      const branchId = parseInt(req.params.branchId);
+      const branch = await storage.getBranchById(branchId, tenantId);
+      if (!branch) return res.status(404).json({ error: "Sucursal no encontrada" });
+      const data = await storage.getOrdersByBranch(tenantId, branchId);
+      res.json({ data });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/branches/:branchId/cash/movements", tenantAuth, requireFeature("branches"), async (req, res) => {
+    try {
+      const tenantId = req.auth!.tenantId!;
+      const branchId = parseInt(req.params.branchId);
+      const branch = await storage.getBranchById(branchId, tenantId);
+      if (!branch) return res.status(404).json({ error: "Sucursal no encontrada" });
+      const data = await storage.getCashMovementsByBranch(tenantId, branchId);
+      res.json({ data });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

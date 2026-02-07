@@ -372,6 +372,8 @@ export const products = pgTable(
     name: varchar("name", { length: 200 }).notNull(),
     description: text("description"),
     price: numeric("price", { precision: 12, scale: 2 }).notNull(),
+    cost: numeric("cost", { precision: 12, scale: 2 }),
+    stock: integer("stock"),
     sku: varchar("sku", { length: 100 }),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -385,3 +387,28 @@ export const insertProductSchema = createInsertSchema(products).omit({
 });
 export type InsertProduct = z.infer<typeof insertProductSchema>;
 export type Product = typeof products.$inferSelect;
+
+// ==================== STT LOGS ====================
+export const sttLogs = pgTable(
+  "stt_logs",
+  {
+    id: serial("id").primaryKey(),
+    tenantId: integer("tenant_id")
+      .references(() => tenants.id)
+      .notNull(),
+    userId: integer("user_id").references(() => users.id),
+    context: varchar("context", { length: 50 }).notNull(),
+    transcription: text("transcription"),
+    intentJson: jsonb("intent_json"),
+    confirmed: boolean("confirmed").default(false),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [index("idx_stt_logs_tenant").on(table.tenantId)]
+);
+
+export const insertSttLogSchema = createInsertSchema(sttLogs).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertSttLog = z.infer<typeof insertSttLogSchema>;
+export type SttLog = typeof sttLogs.$inferSelect;

@@ -10,6 +10,7 @@ import OrdersPage from "./orders";
 import CashPage from "./cash";
 import ProductsPage from "./products";
 import BranchesPage from "./branches";
+import BranchDetailPage from "./branch-detail";
 import SettingsPage from "./settings";
 
 export default function AppLayout() {
@@ -47,6 +48,7 @@ export default function AppLayout() {
               <Route path="/app/orders" component={OrdersPage} />
               <Route path="/app/cash" component={CashPage} />
               <Route path="/app/products" component={ProductsPage} />
+              <Route path="/app/branches/:branchId" component={BranchDetailPage} />
               <Route path="/app/branches" component={BranchesPage} />
               <Route path="/app/settings" component={SettingsPage} />
             </Switch>

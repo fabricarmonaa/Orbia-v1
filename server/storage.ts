@@ -4,7 +4,7 @@ import {
   plans, tenants, users, tenantConfig, branches,
   orderStatuses, orders, orderStatusHistory, orderComments,
   cashSessions, cashMovements, expenseCategories, fixedExpenses,
-  productCategories, products,
+  productCategories, products, sttLogs,
   type InsertPlan, type Plan,
   type InsertTenant, type Tenant,
   type InsertUser, type User,
@@ -18,6 +18,7 @@ import {
   type InsertCashMovement, type CashMovement,
   type InsertProductCategory, type ProductCategory,
   type InsertProduct, type Product,
+  type InsertSttLog, type SttLog,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -91,8 +92,21 @@ export interface IStorage {
 
   // Products
   getProducts(tenantId: number): Promise<Product[]>;
+  getProductById(id: number, tenantId: number): Promise<Product | undefined>;
   createProduct(data: InsertProduct): Promise<Product>;
+  updateProduct(id: number, tenantId: number, data: Partial<InsertProduct>): Promise<Product>;
+  toggleProductActive(id: number, tenantId: number, isActive: boolean): Promise<void>;
   countProducts(tenantId: number): Promise<number>;
+
+  // STT Logs
+  createSttLog(data: InsertSttLog): Promise<SttLog>;
+  getSttLogs(tenantId: number): Promise<SttLog[]>;
+
+  // Branch-scoped queries
+  getOrdersByBranch(tenantId: number, branchId: number): Promise<Order[]>;
+  getCashSessionsByBranch(tenantId: number, branchId: number): Promise<CashSession[]>;
+  getCashMovementsByBranch(tenantId: number, branchId: number): Promise<CashMovement[]>;
+  getBranchById(id: number, tenantId: number): Promise<Branch | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -420,9 +434,30 @@ export class DatabaseStorage implements IStorage {
       .where(eq(products.tenantId, tenantId))
       .orderBy(desc(products.createdAt));
   }
+  async getProductById(id: number, tenantId: number) {
+    const [product] = await db
+      .select()
+      .from(products)
+      .where(and(eq(products.id, id), eq(products.tenantId, tenantId)));
+    return product;
+  }
   async createProduct(data: InsertProduct) {
     const [product] = await db.insert(products).values(data).returning();
     return product;
+  }
+  async updateProduct(id: number, tenantId: number, data: Partial<InsertProduct>) {
+    const [product] = await db
+      .update(products)
+      .set(data)
+      .where(and(eq(products.id, id), eq(products.tenantId, tenantId)))
+      .returning();
+    return product;
+  }
+  async toggleProductActive(id: number, tenantId: number, isActive: boolean) {
+    await db
+      .update(products)
+      .set({ isActive })
+      .where(and(eq(products.id, id), eq(products.tenantId, tenantId)));
   }
   async countProducts(tenantId: number) {
     const [result] = await db
@@ -430,6 +465,49 @@ export class DatabaseStorage implements IStorage {
       .from(products)
       .where(eq(products.tenantId, tenantId));
     return result?.count || 0;
+  }
+
+  // STT Logs
+  async createSttLog(data: InsertSttLog) {
+    const [log] = await db.insert(sttLogs).values(data).returning();
+    return log;
+  }
+  async getSttLogs(tenantId: number) {
+    return db
+      .select()
+      .from(sttLogs)
+      .where(eq(sttLogs.tenantId, tenantId))
+      .orderBy(desc(sttLogs.createdAt));
+  }
+
+  // Branch-scoped queries
+  async getOrdersByBranch(tenantId: number, branchId: number) {
+    return db
+      .select()
+      .from(orders)
+      .where(and(eq(orders.tenantId, tenantId), eq(orders.branchId, branchId)))
+      .orderBy(desc(orders.createdAt));
+  }
+  async getCashSessionsByBranch(tenantId: number, branchId: number) {
+    return db
+      .select()
+      .from(cashSessions)
+      .where(and(eq(cashSessions.tenantId, tenantId), eq(cashSessions.branchId, branchId)))
+      .orderBy(desc(cashSessions.openedAt));
+  }
+  async getCashMovementsByBranch(tenantId: number, branchId: number) {
+    return db
+      .select()
+      .from(cashMovements)
+      .where(and(eq(cashMovements.tenantId, tenantId), eq(cashMovements.branchId, branchId)))
+      .orderBy(desc(cashMovements.createdAt));
+  }
+  async getBranchById(id: number, tenantId: number) {
+    const [branch] = await db
+      .select()
+      .from(branches)
+      .where(and(eq(branches.id, id), eq(branches.tenantId, tenantId)));
+    return branch;
   }
 }
 

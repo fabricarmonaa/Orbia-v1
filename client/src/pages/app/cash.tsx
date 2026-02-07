@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { apiRequest } from "@/lib/auth";
 import { usePlan } from "@/lib/plan";
+import { VoiceCommand } from "@/components/voice-command";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -29,6 +30,7 @@ import {
   DoorOpen,
   DoorClosed,
   Lock,
+  Mic,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { CashSession, CashMovement } from "@shared/schema";
@@ -45,6 +47,8 @@ export default function CashPage() {
   const { toast } = useToast();
 
   const canUseSessions = hasFeature("cash_sessions");
+  const canUseSTT = hasFeature("stt");
+  const [showVoice, setShowVoice] = useState(false);
 
   const [newMovement, setNewMovement] = useState({
     type: "ingreso",
@@ -142,6 +146,19 @@ export default function CashPage() {
     .filter((m) => m.type === "egreso")
     .reduce((acc, m) => acc + parseFloat(m.amount), 0);
 
+  function handleVoiceConfirm(intent: any) {
+    setNewMovement({
+      type: intent.type || "ingreso",
+      amount: intent.amount ? String(intent.amount) : "",
+      method: intent.method || "efectivo",
+      category: intent.category || "",
+      description: intent.description || "",
+    });
+    setShowVoice(false);
+    setDialogOpen(true);
+    toast({ title: "Datos cargados por voz" });
+  }
+
   function formatDate(d: string | Date | null) {
     if (!d) return "-";
     return new Date(d).toLocaleDateString("es-AR", {
@@ -165,6 +182,12 @@ export default function CashPage() {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          {canUseSTT && !showVoice && (
+            <Button variant="outline" onClick={() => setShowVoice(true)} data-testid="button-voice-cash">
+              <Mic className="w-4 h-4 mr-2" />
+              Dictar
+            </Button>
+          )}
           {canUseSessions ? (
             <>
               {!openSession ? (
@@ -369,6 +392,14 @@ export default function CashPage() {
           )}
         </div>
       </div>
+
+      {showVoice && (
+        <VoiceCommand
+          context="cash"
+          onConfirm={handleVoiceConfirm}
+          onCancel={() => setShowVoice(false)}
+        />
+      )}
 
       {!canUseSessions && (
         <Card className="border-chart-4/30">

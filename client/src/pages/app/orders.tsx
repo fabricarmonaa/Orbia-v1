@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
 import { apiRequest, useAuth } from "@/lib/auth";
+import { usePlan } from "@/lib/plan";
+import { VoiceCommand } from "@/components/voice-command";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -39,14 +41,17 @@ import {
   ExternalLink,
   Send,
   X,
+  Mic,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import type { Order, OrderStatus, OrderComment, OrderStatusHistory } from "@shared/schema";
+import type { Order, OrderStatus, OrderComment, OrderStatusHistory, Branch } from "@shared/schema";
 
 export default function OrdersPage() {
   const { user } = useAuth();
+  const { hasFeature } = usePlan();
   const [orders, setOrders] = useState<(Order & { statusName?: string; statusColor?: string })[]>([]);
   const [statuses, setStatuses] = useState<OrderStatus[]>([]);
+  const [branches, setBranches] = useState<Branch[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
@@ -57,6 +62,7 @@ export default function OrdersPage() {
   const [history, setHistory] = useState<OrderStatusHistory[]>([]);
   const [newComment, setNewComment] = useState("");
   const [isPublicComment, setIsPublicComment] = useState(false);
+  const [showVoice, setShowVoice] = useState(false);
   const { toast } = useToast();
 
   const [newOrder, setNewOrder] = useState({
@@ -75,14 +81,17 @@ export default function OrdersPage() {
 
   async function fetchData() {
     try {
-      const [ordersRes, statusesRes] = await Promise.all([
+      const [ordersRes, statusesRes, branchesRes] = await Promise.all([
         apiRequest("GET", "/api/orders"),
         apiRequest("GET", "/api/order-statuses"),
+        apiRequest("GET", "/api/branches").catch(() => ({ json: () => ({ data: [] }) })),
       ]);
       const ordersData = await ordersRes.json();
       const statusesData = await statusesRes.json();
+      const branchesData = await branchesRes.json();
       setOrders(ordersData.data || []);
       setStatuses(statusesData.data || []);
+      setBranches(branchesData.data || []);
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
     } finally {
@@ -176,9 +185,29 @@ export default function OrdersPage() {
     return matchSearch && matchStatus;
   });
 
+  function getBranchName(branchId: number | null) {
+    if (!branchId || branches.length === 0) return null;
+    return branches.find((b) => b.id === branchId)?.name || null;
+  }
+
   function getStatusInfo(statusId: number | null) {
     const s = statuses.find((st) => st.id === statusId);
     return s || { name: "Sin estado", color: "#6B7280" };
+  }
+
+  function handleVoiceConfirm(intent: any) {
+    setNewOrder({
+      type: intent.type || "PEDIDO",
+      customerName: intent.customerName || "",
+      customerPhone: intent.customerPhone || "",
+      customerEmail: "",
+      description: intent.description || "",
+      totalAmount: intent.totalAmount ? String(intent.totalAmount) : "",
+      statusId: "",
+    });
+    setShowVoice(false);
+    setDialogOpen(true);
+    toast({ title: "Datos cargados por voz" });
   }
 
   function formatDate(d: string | Date | null) {
@@ -199,13 +228,20 @@ export default function OrdersPage() {
           <h1 className="text-2xl font-bold tracking-tight">Pedidos</h1>
           <p className="text-muted-foreground">Gestión de pedidos y servicios</p>
         </div>
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger asChild>
-            <Button data-testid="button-create-order">
-              <Plus className="w-4 h-4 mr-2" />
-              Nuevo Pedido
+        <div className="flex items-center gap-2 flex-wrap">
+          {hasFeature("stt") && !showVoice && (
+            <Button variant="outline" onClick={() => setShowVoice(true)} data-testid="button-voice-order">
+              <Mic className="w-4 h-4 mr-2" />
+              Dictar
             </Button>
-          </DialogTrigger>
+          )}
+          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+            <DialogTrigger asChild>
+              <Button data-testid="button-create-order">
+                <Plus className="w-4 h-4 mr-2" />
+                Nuevo Pedido
+              </Button>
+            </DialogTrigger>
           <DialogContent className="max-w-lg">
             <DialogHeader>
               <DialogTitle>Crear Pedido</DialogTitle>
@@ -288,7 +324,16 @@ export default function OrdersPage() {
             </form>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
+
+      {showVoice && (
+        <VoiceCommand
+          context="orders"
+          onConfirm={handleVoiceConfirm}
+          onCancel={() => setShowVoice(false)}
+        />
+      )}
 
       <div className="flex items-center gap-3 flex-wrap">
         <div className="relative flex-1 min-w-[200px]">
@@ -361,6 +406,11 @@ export default function OrdersPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-3 flex-wrap">
+                      {getBranchName(order.branchId) && (
+                        <Badge variant="outline" data-testid={`badge-branch-${order.id}`}>
+                          {getBranchName(order.branchId)}
+                        </Badge>
+                      )}
                       {order.totalAmount && (
                         <span className="text-sm font-medium">
                           ${parseFloat(order.totalAmount).toLocaleString("es-AR")}

@@ -15,8 +15,9 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Plus, Building2, MapPin, Phone } from "lucide-react";
+import { Plus, Building2, MapPin, Phone, ChevronRight } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useLocation } from "wouter";
 import type { Branch } from "@shared/schema";
 
 export default function BranchesPage() {
@@ -25,6 +26,7 @@ export default function BranchesPage() {
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
 
   const [newBranch, setNewBranch] = useState({
     name: "",
@@ -180,7 +182,12 @@ export default function BranchesPage() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {branches.map((branch) => (
-            <Card key={branch.id} className="hover-elevate" data-testid={`card-branch-${branch.id}`}>
+            <Card
+              key={branch.id}
+              className="hover-elevate cursor-pointer"
+              data-testid={`card-branch-${branch.id}`}
+              onClick={() => setLocation(`/app/branches/${branch.id}`)}
+            >
               <CardContent className="pt-6">
                 <div className="flex items-start gap-3">
                   <div className="p-3 rounded-md bg-primary/10 flex-shrink-0">
@@ -206,6 +213,7 @@ export default function BranchesPage() {
                       </div>
                     )}
                   </div>
+                  <ChevronRight className="w-5 h-5 text-muted-foreground flex-shrink-0 mt-3" />
                 </div>
               </CardContent>
             </Card>
