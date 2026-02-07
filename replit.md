@@ -58,8 +58,8 @@ ORBIA is a multi-tenant SaaS platform for SMBs (PyMEs). It provides order manage
 - `client/src/pages/delivery-login.tsx` - Delivery agent login page
 - `client/src/pages/delivery-panel.tsx` - Delivery agent panel (orders, route, actions, history)
 - `shared/schema.ts` - Barrel re-export from shared/schema/ directory
-- `shared/schema/` - Domain-based schema modules (core.ts, orders.ts, products.ts, cash.ts, delivery.ts, stock.ts, stt.ts, config.ts, tracking.ts)
-- `server/storage/` - Domain-based storage modules (interface.ts, users.ts, orders.ts, products.ts, cash.ts, delivery.ts, stock.ts, tracking.ts, config.ts, stt.ts, super.ts, tenants.ts) + index.ts barrel
+- `shared/schema/` - Domain-based schema modules (plans.ts, tenants.ts, users.ts, branches.ts, config.ts, orders.ts, products.ts, cash.ts, delivery.ts, stock.ts, stt.ts)
+- `server/storage/` - Domain-based storage modules (interface.ts, users.ts, orders.ts, products.ts, cash.ts, delivery.ts, stock.ts, config.ts, stt.ts, super.ts, tenants.ts) + index.ts barrel
 - `server/routes/` - Domain-based route modules (auth.ts, super.ts, tenant.ts, orders.ts, branches.ts, cash.ts, products.ts, stt.ts, tracking.ts, delivery.ts, uploads.ts) + index.ts barrel
 - `server/auth.ts` - JWT auth, middleware (tenantAuth, superAuth, enforceBranchScope, blockBranchScope, deliveryAuth)
 - `server/seed.ts` - Conditional database seeding (SEED env var, checks existing data)
