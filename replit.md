@@ -30,8 +30,8 @@ ORBIA is a multi-tenant SaaS platform for SMBs (PyMEs). It provides order manage
 - **Action states**: Tenant-configurable (ENTREGADO/NO_ENCONTRADO/RECHAZADO etc) with photo/comment requirements
 - **Routes**: Agent selects available orders → creates route → marks each stop with action + photo → completes route
 - **Photo proofs**: multer upload to /uploads/delivery/, 10MB limit, .jpg/.jpeg/.png/.webp
-- **Order integration**: Orders can toggle requiresDelivery, with deliveryAddress, deliveryStatus fields
-- **No Google Maps**: Map visualization deferred; delivery works with text addresses
+- **Order integration**: Orders can toggle requiresDelivery, with deliveryAddress (calle+número), deliveryCity, deliveryAddressNotes, deliveryStatus fields
+- **Google Maps**: No API key needed - uses redirect URLs (`https://www.google.com/maps/search/?api=1&query=...`) from delivery panel and order detail
 
 ## Project Structure
 - `client/src/` - React frontend

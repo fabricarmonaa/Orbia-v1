@@ -80,6 +80,7 @@ export default function OrdersPage() {
     statusId: "",
     requiresDelivery: false,
     deliveryAddress: "",
+    deliveryCity: "",
     deliveryAddressNotes: "",
   });
 
@@ -120,11 +121,12 @@ export default function OrdersPage() {
         statusId: newOrder.statusId ? parseInt(newOrder.statusId) : null,
         requiresDelivery: newOrder.requiresDelivery,
         deliveryAddress: newOrder.requiresDelivery ? newOrder.deliveryAddress : null,
+        deliveryCity: newOrder.requiresDelivery ? newOrder.deliveryCity : null,
         deliveryAddressNotes: newOrder.requiresDelivery ? newOrder.deliveryAddressNotes : null,
       });
       toast({ title: "Pedido creado" });
       setDialogOpen(false);
-      setNewOrder({ type: "PEDIDO", customerName: "", customerPhone: "", customerEmail: "", description: "", totalAmount: "", statusId: "", requiresDelivery: false, deliveryAddress: "", deliveryAddressNotes: "" });
+      setNewOrder({ type: "PEDIDO", customerName: "", customerPhone: "", customerEmail: "", description: "", totalAmount: "", statusId: "", requiresDelivery: false, deliveryAddress: "", deliveryCity: "", deliveryAddressNotes: "" });
       fetchData();
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -352,18 +354,27 @@ export default function OrdersPage() {
                   {newOrder.requiresDelivery && (
                     <>
                       <div className="space-y-2">
-                        <Label>Dirección de entrega</Label>
+                        <Label>Calle y número</Label>
                         <Input
-                          placeholder="Calle, número, ciudad..."
+                          placeholder="Ej: Av. San Martín 1234"
                           value={newOrder.deliveryAddress}
                           onChange={(e) => setNewOrder({ ...newOrder, deliveryAddress: e.target.value })}
                           data-testid="input-delivery-address"
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label>Notas de delivery</Label>
+                        <Label>Ciudad</Label>
                         <Input
-                          placeholder="Indicaciones especiales..."
+                          placeholder="Ej: Buenos Aires"
+                          value={newOrder.deliveryCity}
+                          onChange={(e) => setNewOrder({ ...newOrder, deliveryCity: e.target.value })}
+                          data-testid="input-delivery-city"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Notas para el delivery</Label>
+                        <Input
+                          placeholder="Piso, depto, timbre, referencias..."
                           value={newOrder.deliveryAddressNotes}
                           onChange={(e) => setNewOrder({ ...newOrder, deliveryAddressNotes: e.target.value })}
                           data-testid="input-delivery-notes"
@@ -554,11 +565,29 @@ export default function OrdersPage() {
                       {selectedOrder.deliveryAddress && (
                         <div className="flex items-start gap-2">
                           <MapPin className="w-3 h-3 mt-1 text-muted-foreground flex-shrink-0" />
-                          <span className="text-sm">{selectedOrder.deliveryAddress}</span>
+                          <span className="text-sm">
+                            {selectedOrder.deliveryAddress}
+                            {(selectedOrder as any).deliveryCity && `, ${(selectedOrder as any).deliveryCity}`}
+                          </span>
                         </div>
                       )}
                       {selectedOrder.deliveryAddressNotes && (
                         <p className="text-sm text-muted-foreground">{selectedOrder.deliveryAddressNotes}</p>
+                      )}
+                      {selectedOrder.deliveryAddress && (
+                        <a
+                          href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                            `${selectedOrder.deliveryAddress}${(selectedOrder as any).deliveryCity ? `, ${(selectedOrder as any).deliveryCity}` : ""}`
+                          )}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          data-testid="link-google-maps"
+                        >
+                          <Button variant="outline" size="sm" type="button" className="w-full mt-1">
+                            <ExternalLink className="w-4 h-4 mr-1" />
+                            Ver en Google Maps
+                          </Button>
+                        </a>
                       )}
                     </div>
                   )}

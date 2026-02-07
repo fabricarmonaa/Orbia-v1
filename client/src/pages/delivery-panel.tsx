@@ -32,6 +32,8 @@ import {
   History,
   Plus,
   X,
+  Navigation,
+  ExternalLink,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -61,6 +63,13 @@ function deliveryApiRequest(method: string, url: string, data?: unknown, isFormD
     }
     return res;
   });
+}
+
+function buildGoogleMapsUrl(order: any): string | null {
+  if (!order?.deliveryAddress) return null;
+  const parts = [order.deliveryAddress];
+  if (order.deliveryCity) parts.push(order.deliveryCity);
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(parts.join(", "))}`;
 }
 
 export default function DeliveryPanel() {
@@ -108,7 +117,7 @@ export default function DeliveryPanel() {
         deliveryApiRequest("GET", "/api/delivery/orders/available"),
         deliveryApiRequest("GET", "/api/delivery/routes/active"),
         deliveryApiRequest("GET", "/api/delivery/routes/history"),
-        deliveryApiRequest("GET", "/api/delivery/action-states"),
+        deliveryApiRequest("GET", "/api/delivery/agent/action-states"),
       ]);
       setAvailableOrders((await availRes.json()).data || []);
       setActiveRoute((await activeRes.json()).data);
@@ -303,7 +312,9 @@ export default function DeliveryPanel() {
                                 <div>
                                   <p className="font-medium text-sm">{order.customerName || "Sin nombre"}</p>
                                   <p className="text-xs text-muted-foreground">
-                                    {order.deliveryAddress || order.customerPhone || "Sin dirección"}
+                                    {order.deliveryAddress
+                                      ? `${order.deliveryAddress}${order.deliveryCity ? `, ${order.deliveryCity}` : ""}`
+                                      : order.customerPhone || "Sin dirección"}
                                   </p>
                                 </div>
                               </div>
@@ -311,10 +322,18 @@ export default function DeliveryPanel() {
                                 {order.branchName && (
                                   <Badge variant="outline" className="text-xs">{order.branchName}</Badge>
                                 )}
-                                {order.totalAmount && (
-                                  <span className="text-xs font-medium">
-                                    ${parseFloat(order.totalAmount).toLocaleString("es-AR")}
-                                  </span>
+                                {buildGoogleMapsUrl(order) && (
+                                  <a
+                                    href={buildGoogleMapsUrl(order)!}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    onClick={(e) => e.stopPropagation()}
+                                    data-testid={`link-maps-order-${order.id}`}
+                                  >
+                                    <Button size="icon" variant="ghost" type="button">
+                                      <Navigation className="w-4 h-4" />
+                                    </Button>
+                                  </a>
                                 )}
                               </div>
                             </div>
@@ -386,25 +405,43 @@ export default function DeliveryPanel() {
                                     #{order?.orderNumber} - {order?.customerName || "Sin nombre"}
                                   </p>
                                   <p className="text-xs text-muted-foreground">
-                                    {order?.deliveryAddress || order?.customerPhone || "Sin dirección"}
+                                    {order?.deliveryAddress
+                                      ? `${order.deliveryAddress}${order.deliveryCity ? `, ${order.deliveryCity}` : ""}`
+                                      : order?.customerPhone || "Sin dirección"}
                                   </p>
+                                  {order?.deliveryAddressNotes && (
+                                    <p className="text-xs text-muted-foreground/70 italic">{order.deliveryAddressNotes}</p>
+                                  )}
                                 </div>
                               </div>
-                              {!done ? (
-                                <Button
-                                  size="sm"
-                                  onClick={() => openActionDialog(stop)}
-                                  data-testid={`button-action-stop-${stop.id}`}
-                                >
-                                  <MapPin className="w-4 h-4 mr-1" />
-                                  Marcar
-                                </Button>
-                              ) : (
-                                <Badge variant="secondary">
-                                  <CheckCircle className="w-3 h-3 mr-1" />
-                                  Completado
-                                </Badge>
-                              )}
+                              <div className="flex items-center gap-1 flex-wrap">
+                                {buildGoogleMapsUrl(order) && (
+                                  <a
+                                    href={buildGoogleMapsUrl(order)!}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    data-testid={`link-maps-stop-${stop.id}`}
+                                  >
+                                    <Button size="icon" variant="ghost" type="button">
+                                      <Navigation className="w-4 h-4" />
+                                    </Button>
+                                  </a>
+                                )}
+                                {!done ? (
+                                  <Button
+                                    size="sm"
+                                    onClick={() => openActionDialog(stop)}
+                                    data-testid={`button-action-stop-${stop.id}`}
+                                  >
+                                    Marcar
+                                  </Button>
+                                ) : (
+                                  <Badge variant="secondary">
+                                    <CheckCircle className="w-3 h-3 mr-1" />
+                                    Completado
+                                  </Badge>
+                                )}
+                              </div>
                             </div>
                           </CardContent>
                         </Card>

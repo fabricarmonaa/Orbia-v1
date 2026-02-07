@@ -596,7 +596,9 @@ export default function DeliveryPage() {
                           <div>
                             <p className="font-medium">{order.customerName || "Sin cliente"}</p>
                             <p className="text-sm text-muted-foreground">
-                              {order.deliveryAddress || "Sin dirección"}
+                              {order.deliveryAddress
+                                ? `${order.deliveryAddress}${(order as any).deliveryCity ? `, ${(order as any).deliveryCity}` : ""}`
+                                : "Sin dirección"}
                             </p>
                           </div>
                         </div>

@@ -163,6 +163,7 @@ export const orders = pgTable(
     trackingRevoked: boolean("tracking_revoked").default(false),
     requiresDelivery: boolean("requires_delivery").notNull().default(false),
     deliveryAddress: text("delivery_address"),
+    deliveryCity: varchar("delivery_city", { length: 200 }),
     deliveryAddressNotes: text("delivery_address_notes"),
     deliveryReceiverName: varchar("delivery_receiver_name", { length: 200 }),
     deliveryReceiverPhone: varchar("delivery_receiver_phone", { length: 50 }),

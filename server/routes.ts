@@ -365,6 +365,7 @@ export async function registerRoutes(
         createdById: req.auth!.userId,
         requiresDelivery: req.body.requiresDelivery || false,
         deliveryAddress: req.body.deliveryAddress || null,
+        deliveryCity: req.body.deliveryCity || null,
         deliveryAddressNotes: req.body.deliveryAddressNotes || null,
         deliveryStatus: req.body.requiresDelivery ? "pending" : null,
       });
@@ -1059,6 +1060,15 @@ Si no podés extraer algún campo, omitilo. Respondé SOLO con el JSON, sin text
 
   // ==================== DELIVERY AGENT PANEL ENDPOINTS ====================
 
+  app.get("/api/delivery/agent/action-states", deliveryAuth, async (req, res) => {
+    try {
+      const states = await storage.getDeliveryActionStates(req.auth!.tenantId!);
+      res.json({ data: states });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.get("/api/delivery/me", deliveryAuth, async (req, res) => {
     try {
       const agent = await storage.getDeliveryAgentById(req.auth!.deliveryAgentId!, req.auth!.tenantId!);
@@ -1130,6 +1140,16 @@ Si no podés extraer algún campo, omitilo. Respondé SOLO con el JSON, sin text
         })
       );
       res.json({ data: { ...route, stops: enrichedStops } });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/delivery/routes/history", deliveryAuth, async (req, res) => {
+    try {
+      const routes = await storage.getDeliveryRoutesByAgent(req.auth!.deliveryAgentId!, req.auth!.tenantId!);
+      const completed = routes.filter((r) => r.status === "completed");
+      res.json({ data: completed });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -1252,16 +1272,6 @@ Si no podés extraer algún campo, omitilo. Respondé SOLO con el JSON, sin text
       }
       await storage.completeDeliveryRoute(routeId, req.auth!.tenantId!);
       res.json({ success: true });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  app.get("/api/delivery/routes/history", deliveryAuth, async (req, res) => {
-    try {
-      const routes = await storage.getDeliveryRoutesByAgent(req.auth!.deliveryAgentId!, req.auth!.tenantId!);
-      const completed = routes.filter((r) => r.status === "completed");
-      res.json({ data: completed });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
