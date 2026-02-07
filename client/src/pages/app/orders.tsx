@@ -90,7 +90,7 @@ export default function OrdersPage() {
     apiRequest("GET", "/api/addons/status")
       .then((r) => r.json())
       .then((d) => setAddonStatus(d.data || {}))
-      .catch(() => {});
+      .catch(() => { });
   }, []);
 
   async function fetchData() {
@@ -146,7 +146,7 @@ export default function OrdersPage() {
       const historyData = await historyRes.json();
       setComments(commentsData.data || []);
       setHistory(historyData.data || []);
-    } catch {}
+    } catch { }
   }
 
   async function changeStatus(orderId: number, statusId: number) {
@@ -250,134 +250,134 @@ export default function OrdersPage() {
                 Nuevo Pedido
               </Button>
             </DialogTrigger>
-          <DialogContent className="max-w-lg">
-            <DialogHeader>
-              <DialogTitle>Crear Pedido</DialogTitle>
-            </DialogHeader>
-            <form onSubmit={createOrder} className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Tipo</Label>
-                  <Select value={newOrder.type} onValueChange={(v) => setNewOrder({ ...newOrder, type: v })}>
-                    <SelectTrigger data-testid="select-order-type">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="PEDIDO">Pedido</SelectItem>
-                      <SelectItem value="ENCARGO">Encargo</SelectItem>
-                      <SelectItem value="TURNO">Turno</SelectItem>
-                      <SelectItem value="SERVICIO">Servicio</SelectItem>
-                    </SelectContent>
-                  </Select>
+            <DialogContent className="max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Crear Pedido</DialogTitle>
+              </DialogHeader>
+              <form onSubmit={createOrder} className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Tipo</Label>
+                    <Select value={newOrder.type} onValueChange={(v) => setNewOrder({ ...newOrder, type: v })}>
+                      <SelectTrigger data-testid="select-order-type">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="PEDIDO">Pedido</SelectItem>
+                        <SelectItem value="ENCARGO">Encargo</SelectItem>
+                        <SelectItem value="TURNO">Turno</SelectItem>
+                        <SelectItem value="SERVICIO">Servicio</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Estado</Label>
+                    <Select value={newOrder.statusId} onValueChange={(v) => setNewOrder({ ...newOrder, statusId: v })}>
+                      <SelectTrigger data-testid="select-order-status">
+                        <SelectValue placeholder="Estado inicial" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {statuses.map((s) => (
+                          <SelectItem key={s.id} value={String(s.id)}>
+                            {s.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
                 <div className="space-y-2">
-                  <Label>Estado</Label>
-                  <Select value={newOrder.statusId} onValueChange={(v) => setNewOrder({ ...newOrder, statusId: v })}>
-                    <SelectTrigger data-testid="select-order-status">
-                      <SelectValue placeholder="Estado inicial" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {statuses.map((s) => (
-                        <SelectItem key={s.id} value={String(s.id)}>
-                          {s.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label>Cliente</Label>
-                <Input
-                  placeholder="Nombre del cliente"
-                  value={newOrder.customerName}
-                  onChange={(e) => setNewOrder({ ...newOrder, customerName: e.target.value })}
-                  data-testid="input-customer-name"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Teléfono</Label>
+                  <Label>Cliente</Label>
                   <Input
-                    placeholder="Teléfono"
-                    value={newOrder.customerPhone}
-                    onChange={(e) => setNewOrder({ ...newOrder, customerPhone: e.target.value })}
-                    data-testid="input-customer-phone"
+                    placeholder="Nombre del cliente"
+                    value={newOrder.customerName}
+                    onChange={(e) => setNewOrder({ ...newOrder, customerName: e.target.value })}
+                    data-testid="input-customer-name"
                   />
                 </div>
-                <div className="space-y-2">
-                  <Label>Monto</Label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    placeholder="0.00"
-                    value={newOrder.totalAmount}
-                    onChange={(e) => setNewOrder({ ...newOrder, totalAmount: e.target.value })}
-                    data-testid="input-total-amount"
-                  />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label>Descripción</Label>
-                <Textarea
-                  placeholder="Detalle del pedido..."
-                  value={newOrder.description}
-                  onChange={(e) => setNewOrder({ ...newOrder, description: e.target.value })}
-                  data-testid="input-description"
-                />
-              </div>
-              {addonStatus.delivery && (
-                <div className="space-y-3 p-3 rounded-md bg-muted/50">
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="flex items-center gap-2">
-                      <Truck className="w-4 h-4 text-muted-foreground" />
-                      <Label className="text-sm">Requiere delivery</Label>
-                    </div>
-                    <Switch
-                      checked={newOrder.requiresDelivery}
-                      onCheckedChange={(v) => setNewOrder({ ...newOrder, requiresDelivery: v })}
-                      data-testid="switch-requires-delivery"
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Teléfono</Label>
+                    <Input
+                      placeholder="Teléfono"
+                      value={newOrder.customerPhone}
+                      onChange={(e) => setNewOrder({ ...newOrder, customerPhone: e.target.value })}
+                      data-testid="input-customer-phone"
                     />
                   </div>
-                  {newOrder.requiresDelivery && (
-                    <>
-                      <div className="space-y-2">
-                        <Label>Calle y número</Label>
-                        <Input
-                          placeholder="Ej: Av. San Martín 1234"
-                          value={newOrder.deliveryAddress}
-                          onChange={(e) => setNewOrder({ ...newOrder, deliveryAddress: e.target.value })}
-                          data-testid="input-delivery-address"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Ciudad</Label>
-                        <Input
-                          placeholder="Ej: Buenos Aires"
-                          value={newOrder.deliveryCity}
-                          onChange={(e) => setNewOrder({ ...newOrder, deliveryCity: e.target.value })}
-                          data-testid="input-delivery-city"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Notas para el delivery</Label>
-                        <Input
-                          placeholder="Piso, depto, timbre, referencias..."
-                          value={newOrder.deliveryAddressNotes}
-                          onChange={(e) => setNewOrder({ ...newOrder, deliveryAddressNotes: e.target.value })}
-                          data-testid="input-delivery-notes"
-                        />
-                      </div>
-                    </>
-                  )}
+                  <div className="space-y-2">
+                    <Label>Monto</Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={newOrder.totalAmount}
+                      onChange={(e) => setNewOrder({ ...newOrder, totalAmount: e.target.value })}
+                      data-testid="input-total-amount"
+                    />
+                  </div>
                 </div>
-              )}
-              <Button type="submit" className="w-full" data-testid="button-submit-order">
-                Crear Pedido
-              </Button>
-            </form>
-          </DialogContent>
-        </Dialog>
+                <div className="space-y-2">
+                  <Label>Descripción</Label>
+                  <Textarea
+                    placeholder="Detalle del pedido..."
+                    value={newOrder.description}
+                    onChange={(e) => setNewOrder({ ...newOrder, description: e.target.value })}
+                    data-testid="input-description"
+                  />
+                </div>
+                {addonStatus.delivery && (
+                  <div className="space-y-3 p-3 rounded-md bg-muted/50">
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-2">
+                        <Truck className="w-4 h-4 text-muted-foreground" />
+                        <Label className="text-sm">Requiere delivery</Label>
+                      </div>
+                      <Switch
+                        checked={newOrder.requiresDelivery}
+                        onCheckedChange={(v) => setNewOrder({ ...newOrder, requiresDelivery: v })}
+                        data-testid="switch-requires-delivery"
+                      />
+                    </div>
+                    {newOrder.requiresDelivery && (
+                      <>
+                        <div className="space-y-2">
+                          <Label>Calle y número</Label>
+                          <Input
+                            placeholder="Ej: Av. San Martín 1234"
+                            value={newOrder.deliveryAddress}
+                            onChange={(e) => setNewOrder({ ...newOrder, deliveryAddress: e.target.value })}
+                            data-testid="input-delivery-address"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Ciudad</Label>
+                          <Input
+                            placeholder="Ej: Buenos Aires"
+                            value={newOrder.deliveryCity}
+                            onChange={(e) => setNewOrder({ ...newOrder, deliveryCity: e.target.value })}
+                            data-testid="input-delivery-city"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Notas para el delivery</Label>
+                          <Input
+                            placeholder="Piso, depto, timbre, referencias..."
+                            value={newOrder.deliveryAddressNotes}
+                            onChange={(e) => setNewOrder({ ...newOrder, deliveryAddressNotes: e.target.value })}
+                            data-testid="input-delivery-notes"
+                          />
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+                <Button type="submit" className="w-full" data-testid="button-submit-order">
+                  Crear Pedido
+                </Button>
+              </form>
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
 
@@ -476,7 +476,7 @@ export default function OrdersPage() {
                         </span>
                       )}
                       <Badge
-                        style={{ backgroundColor: status.color, color: "#fff" }}
+                        style={{ backgroundColor: status.color || "#6B7280", color: "#fff" }}
                         data-testid={`badge-status-${order.id}`}
                       >
                         {status.name}
@@ -714,7 +714,7 @@ export default function OrdersPage() {
                             <div key={h.id} className="flex items-center gap-3 p-2">
                               <div
                                 className="w-2 h-2 rounded-full flex-shrink-0"
-                                style={{ backgroundColor: s.color }}
+                                style={{ backgroundColor: s.color || "#6B7280" }}
                               />
                               <div className="flex-1 min-w-0">
                                 <p className="text-sm font-medium">{s.name}</p>

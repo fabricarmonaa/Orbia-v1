@@ -9,3 +9,6 @@ export * from './schema/products';
 export * from './schema/delivery';
 export * from './schema/stock';
 export * from './schema/stt';
+export * from './schema/audit';
+export * from './schema/permissions';
+

@@ -3,8 +3,11 @@ import { eq, and } from "drizzle-orm";
 import { users, type InsertUser } from "@shared/schema";
 
 export const userStorage = {
-  async getUserById(id: number) {
-    const [user] = await db.select().from(users).where(eq(users.id, id));
+  async getUserById(id: number, tenantId: number) {
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(and(eq(users.id, id), eq(users.tenantId, tenantId)));
     return user;
   },
   async getUserByEmail(email: string, tenantId?: number | null) {

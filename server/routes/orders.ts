@@ -92,23 +92,44 @@ export function registerOrderRoutes(app: Express) {
     }
   });
 
-  app.get("/api/orders/:id/comments", tenantAuth, async (req, res) => {
+  app.get("/api/orders/:id/comments", tenantAuth, enforceBranchScope, async (req, res) => {
     try {
-      const data = await storage.getOrderComments(
-        parseInt(req.params.id as string),
-        req.auth!.tenantId!
-      );
+      const tenantId = req.auth!.tenantId!;
+      const orderId = parseInt(req.params.id as string);
+
+      // Validate ownership
+      const order = await storage.getOrderById(orderId, tenantId);
+      if (!order) return res.status(404).json({ error: "Pedido no encontrado" });
+
+      // Validate branch scope
+      if (req.auth!.scope === "BRANCH" && order.branchId !== req.auth!.branchId) {
+        return res.status(403).json({ error: "No tenés acceso a este pedido" });
+      }
+
+      const data = await storage.getOrderComments(orderId, tenantId);
       res.json({ data });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  app.post("/api/orders/:id/comments", tenantAuth, async (req, res) => {
+  app.post("/api/orders/:id/comments", tenantAuth, enforceBranchScope, async (req, res) => {
     try {
+      const tenantId = req.auth!.tenantId!;
+      const orderId = parseInt(req.params.id as string);
+
+      // Validate ownership
+      const order = await storage.getOrderById(orderId, tenantId);
+      if (!order) return res.status(404).json({ error: "Pedido no encontrado" });
+
+      // Validate branch scope
+      if (req.auth!.scope === "BRANCH" && order.branchId !== req.auth!.branchId) {
+        return res.status(403).json({ error: "No tenés acceso a este pedido" });
+      }
+
       const data = await storage.createOrderComment({
-        tenantId: req.auth!.tenantId!,
-        orderId: parseInt(req.params.id as string),
+        tenantId,
+        orderId,
         userId: req.auth!.userId,
         content: req.body.content,
         isPublic: req.body.isPublic || false,
@@ -119,12 +140,21 @@ export function registerOrderRoutes(app: Express) {
     }
   });
 
-  app.get("/api/orders/:id/history", tenantAuth, async (req, res) => {
+  app.get("/api/orders/:id/history", tenantAuth, enforceBranchScope, async (req, res) => {
     try {
-      const data = await storage.getOrderHistory(
-        parseInt(req.params.id as string),
-        req.auth!.tenantId!
-      );
+      const tenantId = req.auth!.tenantId!;
+      const orderId = parseInt(req.params.id as string);
+
+      // Validate ownership
+      const order = await storage.getOrderById(orderId, tenantId);
+      if (!order) return res.status(404).json({ error: "Pedido no encontrado" });
+
+      // Validate branch scope
+      if (req.auth!.scope === "BRANCH" && order.branchId !== req.auth!.branchId) {
+        return res.status(403).json({ error: "No tenés acceso a este pedido" });
+      }
+
+      const data = await storage.getOrderHistory(orderId, tenantId);
       res.json({ data });
     } catch (err: any) {
       res.status(500).json({ error: err.message });

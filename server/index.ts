@@ -1,3 +1,4 @@
+import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
@@ -108,15 +109,10 @@ app.use((req, res, next) => {
     }
   }, 5 * 60 * 1000);
 
-  const port = parseInt(process.env.PORT || "5000", 10);
-  httpServer.listen(
-    {
-      port,
-      host: "0.0.0.0",
-      reusePort: true,
-    },
-    () => {
-      log(`serving on port ${port}`);
-    },
-  );
+  // Railway compatibility: use PORT env var, bind to 0.0.0.0
+  const PORT = parseInt(process.env.PORT || "5000");
+
+  httpServer.listen(PORT, "0.0.0.0", () => {
+    log(`Server running on port ${PORT}`);
+  });
 })();

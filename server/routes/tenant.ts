@@ -6,7 +6,7 @@ import { profileUpload } from "./uploads";
 export function registerTenantRoutes(app: Express) {
   app.get("/api/me", tenantAuth, async (req, res) => {
     try {
-      const user = await storage.getUserById(req.auth!.userId);
+      const user = await storage.getUserById(req.auth!.userId, req.auth!.tenantId!);
       if (!user) return res.status(404).json({ error: "Usuario no encontrado" });
       res.json({
         data: {

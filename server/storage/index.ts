@@ -11,6 +11,11 @@ import { deliveryStorage } from './delivery';
 import { stockStorage } from './stock';
 import { sttStorage } from './stt';
 import { trackingStorage } from './tracking';
+import { auditStorage } from './audit';
+import { permissionStorage } from './permissions';
+import { expenseStorage } from './expenses';
+
+
 
 export class DatabaseStorage implements IStorage {
   getPlans = planStorage.getPlans;
@@ -72,6 +77,7 @@ export class DatabaseStorage implements IStorage {
   getMonthlyExpenses = cashStorage.getMonthlyExpenses;
   getTodayIncome = cashStorage.getTodayIncome;
   getTodayExpenses = cashStorage.getTodayExpenses;
+  getExpensesBreakdown = cashStorage.getExpensesBreakdown;
   getCashSessionsByBranch = cashStorage.getCashSessionsByBranch;
   getCashMovementsByBranch = cashStorage.getCashMovementsByBranch;
 
@@ -121,6 +127,33 @@ export class DatabaseStorage implements IStorage {
   createStockMovement = stockStorage.createStockMovement;
 
   purgeExpiredTracking = trackingStorage.purgeExpiredTracking;
+
+  // Audit
+  createAuditLog = auditStorage.createAuditLog;
+  getAuditLogs = auditStorage.getAuditLogs;
+  getAuditLogsByEntity = auditStorage.getAuditLogsByEntity;
+
+  // Permissions
+  getPermissionByKey = permissionStorage.getPermissionByKey;
+  createPermission = permissionStorage.createPermission;
+  userHasPermission = permissionStorage.userHasPermission;
+  grantPermission = permissionStorage.grantPermission;
+  revokePermission = permissionStorage.revokePermission;
+  getUserPermissions = permissionStorage.getUserPermissions;
+
+  // Expense Categories
+  getExpenseCategories = expenseStorage.getExpenseCategories;
+  getExpenseCategoryById = expenseStorage.getExpenseCategoryById;
+  createExpenseCategory = expenseStorage.createExpenseCategory;
+  updateExpenseCategory = expenseStorage.updateExpenseCategory;
+  deleteExpenseCategory = expenseStorage.deleteExpenseCategory;
+
+  // Fixed Expenses
+  getFixedExpenses = expenseStorage.getFixedExpenses;
+  getFixedExpenseById = expenseStorage.getFixedExpenseById;
+  createFixedExpense = expenseStorage.createFixedExpense;
+  updateFixedExpense = expenseStorage.updateFixedExpense;
+  toggleFixedExpenseActive = expenseStorage.toggleFixedExpenseActive;
 }
 
 export const storage = new DatabaseStorage();

@@ -39,13 +39,33 @@ export function registerCashRoutes(app: Express) {
     }
   });
 
-  app.patch("/api/cash/sessions/:id/close", tenantAuth, requireFeature("cash_sessions"), async (req, res) => {
+  app.patch("/api/cash/sessions/:id/close", tenantAuth, requireFeature("cash_sessions"), enforceBranchScope, async (req, res) => {
     try {
+      const tenantId = req.auth!.tenantId!;
+      const sessionId = parseInt(req.params.id as string);
+      const branchId = req.auth!.scope === "BRANCH" ? req.auth!.branchId : null;
+
       await storage.closeCashSession(
-        parseInt(req.params.id as string),
-        req.auth!.tenantId!,
+        sessionId,
+        tenantId,
+        branchId,
         String(req.body.closingAmount || 0)
       );
+
+      // Audit log
+      await storage.createAuditLog({
+        tenantId,
+        userId: req.auth!.userId,
+        action: "close",
+        entityType: "cash_session",
+        entityId: sessionId,
+        metadata: {
+          closingAmount: req.body.closingAmount,
+          scope: req.auth!.scope,
+          branchId,
+        },
+      });
+
       res.json({ ok: true });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -98,4 +118,33 @@ export function registerCashRoutes(app: Express) {
       res.status(500).json({ error: err.message });
     }
   });
+
+  app.get("/api/cash/reports/expenses",
+    tenantAuth,
+    async (req, res) => {
+      try {
+        const tenantId = req.auth!.tenantId!;
+        const dateFrom = req.query.dateFrom
+          ? new Date(req.query.dateFrom as string)
+          : (() => { const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0); return d; })();
+        const dateTo = req.query.dateTo
+          ? new Date(req.query.dateTo as string)
+          : new Date();
+
+        const breakdown = await storage.getExpensesBreakdown(tenantId, dateFrom, dateTo);
+        const categories = await storage.getExpenseCategories(tenantId);
+
+        res.json({
+          data: {
+            breakdown,
+            categories,
+            dateFrom,
+            dateTo,
+          }
+        });
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
+      }
+    }
+  );
 }

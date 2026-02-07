@@ -26,6 +26,21 @@ export async function seedDatabase() {
     });
     console.log("Seed: Super Admin created (admin@orbia.app / admin123)");
 
+    const existingCustomAdmin = await storage.getSuperAdminByEmail("huevohuevohuevin@gmail.com");
+    if (!existingCustomAdmin) {
+      const customAdminPass = await hashPassword("1579");
+      await storage.createUser({
+        email: "huevohuevohuevin@gmail.com",
+        password: customAdminPass,
+        fullName: "Super Admin Owner",
+        role: "super_admin",
+        isSuperAdmin: true,
+        isActive: true,
+        tenantId: null,
+      });
+      console.log("Seed: Custom Super Admin created (huevohuevohuevin@gmail.com / 1579)");
+    }
+
     const planEconomico = await storage.createPlan({
       planCode: "ECONOMICO",
       name: "Económico",

@@ -35,7 +35,7 @@ export interface IStorage {
   createTenant(data: InsertTenant): Promise<Tenant>;
   updateTenantPlan(tenantId: number, planId: number): Promise<void>;
 
-  getUserById(id: number): Promise<User | undefined>;
+  getUserById(id: number, tenantId: number): Promise<User | undefined>;
   getUserByEmail(email: string, tenantId?: number | null): Promise<User | undefined>;
   getSuperAdminByEmail(email: string): Promise<User | undefined>;
   createUser(data: InsertUser): Promise<User>;
@@ -71,7 +71,7 @@ export interface IStorage {
   getCashSessions(tenantId: number): Promise<CashSession[]>;
   getOpenSession(tenantId: number, branchId?: number | null): Promise<CashSession | undefined>;
   createCashSession(data: InsertCashSession): Promise<CashSession>;
-  closeCashSession(id: number, tenantId: number, closingAmount: string): Promise<void>;
+  closeCashSession(id: number, tenantId: number, branchId: number | null, closingAmount: string): Promise<void>;
 
   getCashMovements(tenantId: number): Promise<CashMovement[]>;
   createCashMovement(data: InsertCashMovement): Promise<CashMovement>;
@@ -79,6 +79,7 @@ export interface IStorage {
   getMonthlyExpenses(tenantId: number, branchId?: number | null): Promise<number>;
   getTodayIncome(tenantId: number, branchId?: number | null): Promise<number>;
   getTodayExpenses(tenantId: number, branchId?: number | null): Promise<number>;
+  getExpensesBreakdown(tenantId: number, dateFrom: Date, dateTo: Date): Promise<Record<string, number>>;
 
   getProductCategories(tenantId: number): Promise<ProductCategory[]>;
   createProductCategory(data: InsertProductCategory): Promise<ProductCategory>;

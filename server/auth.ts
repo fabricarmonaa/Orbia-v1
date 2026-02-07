@@ -2,8 +2,15 @@ import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import type { Request, Response, NextFunction } from "express";
 import { storage } from "./storage";
+import "dotenv/config";
 
-const JWT_SECRET = process.env.SESSION_SECRET || "orbia-secret-key-change-me";
+const JWT_SECRET_ENV = process.env.SESSION_SECRET;
+
+if (!JWT_SECRET_ENV) {
+  throw new Error("SESSION_SECRET is not defined");
+}
+
+const JWT_SECRET: string = JWT_SECRET_ENV;
 
 export interface JWTPayload {
   userId: number;
@@ -80,6 +87,12 @@ declare global {
     interface Request {
       auth?: JWTPayload;
       plan?: TenantPlanInfo;
+      context?: {
+        tenantId: number | null;
+        branchId: number | null;
+        userId: number;
+        scope: string;
+      };
     }
   }
 }
@@ -203,4 +216,74 @@ export function deliveryAuth(req: Request, res: Response, next: NextFunction) {
   } catch {
     return res.status(401).json({ error: "Token inválido" });
   }
+}
+
+// Helper: Require tenant context
+export function requireTenant(req: Request, res: Response, next: NextFunction) {
+  if (!req.auth?.tenantId) {
+    return res.status(403).json({ error: "Contexto de tenant requerido" });
+  }
+  next();
+}
+
+// Helper: Inject context
+export function injectContext(req: Request, res: Response, next: NextFunction) {
+  if (req.auth) {
+    req.context = {
+      tenantId: req.auth.tenantId || null,
+      branchId: req.auth.branchId || null,
+      userId: req.auth.userId,
+      scope: req.auth.scope || "TENANT",
+    };
+  }
+  next();
+}
+
+// Middleware: Validate entity branch ownership
+export function validateBranchOwnership<T extends { branchId?: number | null }>(
+  entityGetter: (id: number, tenantId: number) => Promise<T | undefined>,
+  entityIdParam: string = "id"
+) {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    if (req.auth?.scope !== "BRANCH") {
+      return next();
+    }
+    const entityId = parseInt(req.params[entityIdParam] as string);
+    const tenantId = req.auth.tenantId!;
+    const entity = await entityGetter(entityId, tenantId);
+    if (!entity) {
+      return res.status(404).json({ error: "No encontrado" });
+    }
+    if (entity.branchId !== req.auth.branchId) {
+      return res.status(403).json({ error: "No tenés acceso a este recurso" });
+    }
+    next();
+  };
+}
+
+// Permission check (granular)
+export function requirePermission(permissionKey: string) {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.auth?.userId || !req.auth?.tenantId) {
+        return res.status(403).json({ error: "Acceso denegado" });
+      }
+      if (req.auth.isSuperAdmin) return next();
+      const hasPermission = await storage.userHasPermission(
+        req.auth.userId,
+        req.auth.tenantId,
+        permissionKey
+      );
+      if (!hasPermission) {
+        return res.status(403).json({
+          error: "No tenés permisos para realizar esta acción",
+          code: "PERMISSION_DENIED",
+          permission: permissionKey,
+        });
+      }
+      next();
+    } catch {
+      return res.status(500).json({ error: "Error verificando permisos" });
+    }
+  };
 }

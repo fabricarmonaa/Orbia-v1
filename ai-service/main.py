@@ -1,10 +1,15 @@
 """
 ORBIA AI Service - FastAPI microservice for STT and intent parsing.
-Uses faster-whisper for speech-to-text and regex-based intent extraction.
-No external LLM dependency required.
+Uses subprocess pattern for zero-RAM persistence.
+No model stays in memory after transcription.
 """
 
 import os
+import subprocess
+import asyncio
+import json
+import tempfile
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,16 +18,26 @@ from pydantic import BaseModel
 from parsers.orders import parse_order_intent
 from parsers.cash import parse_cash_intent
 from parsers.products import parse_product_intent
-from transcriber import transcribe_audio, get_whisper_model
 
 app = FastAPI(title="ORBIA AI Service", version="1.0.0")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# CORS - restrict to backend only (not public-facing)
+BACKEND_URL = os.environ.get("BACKEND_URL", "")
+if BACKEND_URL:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[BACKEND_URL],
+        allow_methods=["POST", "GET"],
+        allow_headers=["*"],
+    )
+else:
+    # Development fallback
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_methods=["POST", "GET"],
+        allow_headers=["*"],
+    )
 
 
 class STTRequest(BaseModel):
@@ -37,7 +52,7 @@ class STTResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     status: str
-    whisper_available: bool
+    worker_available: bool
 
 
 INTENT_PARSERS = {
@@ -46,18 +61,96 @@ INTENT_PARSERS = {
     "products": parse_product_intent,
 }
 
+WORKER_TIMEOUT = int(os.environ.get("AI_WORKER_TIMEOUT_SECONDS", "25"))
+
 
 @app.get("/health", response_model=HealthResponse)
 async def health():
+    worker_available = True
     try:
-        get_whisper_model()
-        whisper_available = True
+        # Test if worker script exists
+        worker_path = Path(__file__).parent / "worker_transcribe.py"
+        if not worker_path.exists():
+            worker_available = False
     except Exception:
-        whisper_available = False
+        worker_available = False
+    
     return HealthResponse(
         status="ok",
-        whisper_available=whisper_available,
+        worker_available=worker_available,
     )
+
+
+async def transcribe_with_subprocess(audio_base64: str, timeout: int) -> str:
+    """
+    Run transcription in subprocess with strict timeout.
+    Model loads ONLY in subprocess and is released when it exits.
+    
+    CRITICAL: Uses STDIN to pass audio (not argv) to avoid length limits.
+    """
+    worker_path = Path(__file__).parent / "worker_transcribe.py"
+    
+    if not worker_path.exists():
+        raise HTTPException(status_code=500, detail="Worker script not found")
+    
+    model_size = os.environ.get("WHISPER_MODEL", "base")
+    input_data = json.dumps({
+        "audio": audio_base64,
+        "model_size": model_size
+    })
+    
+    try:
+        # Run subprocess with stdin (not argv) to avoid length limits
+        process = await asyncio.create_subprocess_exec(
+            "python",
+            str(worker_path),
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(input=input_data.encode()),
+                timeout=timeout
+            )
+        except asyncio.TimeoutError:
+            # Kill process tree on timeout (including any ffmpeg children)
+            try:
+                process.kill()
+            except:
+                pass
+            
+            try:
+                await asyncio.wait_for(process.wait(), timeout=5)
+            except asyncio.TimeoutError:
+                # Force kill if still alive
+                try:
+                    process.terminate()
+                except:
+                    pass
+            
+            raise HTTPException(
+                status_code=504,
+                detail=f"Transcription timeout after {timeout}s. Audio may be too long."
+            )
+        
+        if process.returncode != 0:
+            error_msg = stderr.decode() if stderr else "Unknown error"
+            raise HTTPException(status_code=500, detail=f"Worker failed: {error_msg}")
+        
+        # Parse result
+        result = json.loads(stdout.decode())
+        
+        if not result.get("success"):
+            raise HTTPException(status_code=500, detail=result.get("error", "Transcription failed"))
+        
+        return result["transcription"]
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Subprocess error: {str(e)}")
 
 
 @app.post("/api/stt", response_model=STTResponse)
@@ -66,7 +159,9 @@ async def stt(request: STTRequest):
         raise HTTPException(status_code=400, detail="Contexto inválido")
 
     try:
-        transcription = transcribe_audio(request.audio)
+        transcription = await transcribe_with_subprocess(request.audio, WORKER_TIMEOUT)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error en transcripción: {str(e)}")
 
@@ -81,5 +176,8 @@ async def stt(request: STTRequest):
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.environ.get("AI_SERVICE_PORT", "8001"))
+    
+    # Railway compatibility: use PORT env var
+    port = int(os.environ.get("PORT", os.environ.get("AI_SERVICE_PORT", "8001")))
+    
     uvicorn.run(app, host="0.0.0.0", port=port)

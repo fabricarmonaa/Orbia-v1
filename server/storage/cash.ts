@@ -28,12 +28,27 @@ export const cashStorage = {
     const [session] = await db.insert(cashSessions).values(data).returning();
     return session;
   },
-  async closeCashSession(id: number, tenantId: number, closingAmount: string) {
+  async closeCashSession(id: number, tenantId: number, branchId: number | null, closingAmount: string) {
+    const conditions = [
+      eq(cashSessions.id, id),
+      eq(cashSessions.tenantId, tenantId),
+      eq(cashSessions.status, "open"),
+    ];
+
+    // If branchId is provided, validate branch ownership
+    if (branchId !== null) {
+      conditions.push(eq(cashSessions.branchId, branchId));
+    }
+
     const [session] = await db
       .select()
       .from(cashSessions)
-      .where(and(eq(cashSessions.id, id), eq(cashSessions.tenantId, tenantId), eq(cashSessions.status, "open")));
-    if (!session) throw new Error("No hay caja abierta");
+      .where(and(...conditions));
+
+    if (!session) {
+      throw new Error("No hay caja abierta o no tenés acceso a esta caja");
+    }
+
     const diff = parseFloat(closingAmount) - parseFloat(session.openingAmount);
     await db
       .update(cashSessions)
@@ -131,5 +146,28 @@ export const cashStorage = {
       .from(cashMovements)
       .where(and(eq(cashMovements.tenantId, tenantId), eq(cashMovements.branchId, branchId)))
       .orderBy(desc(cashMovements.createdAt));
+  },
+
+  async getExpensesBreakdown(tenantId: number, dateFrom: Date, dateTo: Date) {
+    const movements = await db
+      .select()
+      .from(cashMovements)
+      .where(
+        and(
+          eq(cashMovements.tenantId, tenantId),
+          eq(cashMovements.type, "egreso"),
+          sql`${cashMovements.createdAt} >= ${dateFrom}`,
+          sql`${cashMovements.createdAt} <= ${dateTo}`
+        )
+      );
+
+    // Group by category
+    const breakdown: Record<string, number> = {};
+    for (const m of movements) {
+      const cat = m.category || "Sin categoría";
+      breakdown[cat] = (breakdown[cat] || 0) + parseFloat(m.amount);
+    }
+
+    return breakdown;
   },
 };

@@ -62,8 +62,35 @@ export function VoiceCommand({ context, onResult, onCancel }: VoiceCommandProps)
   const handleStartRecording = useCallback(async () => {
     setError(null);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,  // Mono
+          sampleRate: 16000,  // 16kHz optimal for Whisper
+          echoCancellation: true,
+          noiseSuppression: true,
+        }
+      });
+
+      // Prefer webm/opus for smaller size, fallback to browser default
+      const mimeTypes = [
+        'audio/webm;codecs=opus',
+        'audio/ogg;codecs=opus',
+        'audio/webm',
+        'audio/ogg',
+      ];
+
+      let selectedMimeType = '';
+      for (const mimeType of mimeTypes) {
+        if (MediaRecorder.isTypeSupported(mimeType)) {
+          selectedMimeType = mimeType;
+          break;
+        }
+      }
+
+      const recorder = new MediaRecorder(stream, {
+        mimeType: selectedMimeType || undefined,
+        audioBitsPerSecond: 24000,  // Low bitrate for voice
+      });
       const chunks: BlobPart[] = [];
 
       recorder.ondataavailable = (e) => {
@@ -85,6 +112,14 @@ export function VoiceCommand({ context, onResult, onCancel }: VoiceCommandProps)
           const base64 = btoa(
             new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), "")
           );
+
+          // Client-side size check (2MB default limit)
+          const MAX_SIZE = 2 * 1024 * 1024;
+          if (base64.length > MAX_SIZE) {
+            setError("Audio demasiado largo. Máximo 30 segundos.");
+            setProcessing(false);
+            return;
+          }
 
           const res = await apiRequest("POST", "/api/ai/stt", { audio: base64, context });
           const data = await res.json();
