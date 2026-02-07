@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { apiRequest, useAuth } from "@/lib/auth";
+import { usePlan } from "@/lib/plan";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -13,7 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Settings, Save, Crown } from "lucide-react";
+import { Settings, Save, Crown, Lock, Check, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 interface Config {
@@ -24,15 +25,30 @@ interface Config {
   language: string;
 }
 
-interface PlanInfo {
-  name: string;
-  planCode: string;
-  features: Record<string, boolean>;
-  limits: Record<string, number>;
-}
+const featureLabels: Record<string, string> = {
+  orders: "Pedidos / Servicios",
+  tracking: "Tracking Público",
+  cash_simple: "Caja Simple",
+  cash_sessions: "Caja con Sesiones",
+  products: "Productos y Categorías",
+  branches: "Multi-Sucursal",
+  fixed_expenses: "Gastos Fijos",
+  variable_expenses: "Gastos Variables",
+  reports_advanced: "Reportes Avanzados",
+  stt: "Voz IA (STT)",
+};
+
+const limitLabels: Record<string, string> = {
+  max_branches: "Máx. Sucursales",
+  max_staff_users: "Máx. Staff",
+  max_orders_month: "Pedidos/mes",
+  tracking_retention_min_hours: "Tracking mín. (horas)",
+  tracking_retention_max_hours: "Tracking máx. (horas)",
+};
 
 export default function SettingsPage() {
   const { user } = useAuth();
+  const { plan, loading: planLoading, getLimit } = usePlan();
   const [config, setConfig] = useState<Config>({
     businessName: "",
     businessType: "",
@@ -40,10 +56,12 @@ export default function SettingsPage() {
     trackingExpirationHours: 24,
     language: "es",
   });
-  const [planInfo, setPlanInfo] = useState<PlanInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const { toast } = useToast();
+
+  const minTrackingHours = getLimit("tracking_retention_min_hours") || 1;
+  const maxTrackingHours = getLimit("tracking_retention_max_hours") || 24;
 
   useEffect(() => {
     fetchConfig();
@@ -51,12 +69,8 @@ export default function SettingsPage() {
 
   async function fetchConfig() {
     try {
-      const [configRes, planRes] = await Promise.all([
-        apiRequest("GET", "/api/config"),
-        apiRequest("GET", "/api/me/plan"),
-      ]);
+      const configRes = await apiRequest("GET", "/api/config");
       const configData = await configRes.json();
-      const planData = await planRes.json();
       if (configData.data) {
         setConfig({
           businessName: configData.data.businessName || "",
@@ -66,7 +80,6 @@ export default function SettingsPage() {
           language: configData.data.language || "es",
         });
       }
-      setPlanInfo(planData.data || null);
     } catch {
     } finally {
       setLoading(false);
@@ -86,7 +99,7 @@ export default function SettingsPage() {
     }
   }
 
-  if (loading) {
+  if (loading || planLoading) {
     return (
       <div className="space-y-6">
         <Skeleton className="h-8 w-48" />
@@ -163,13 +176,21 @@ export default function SettingsPage() {
                     </Select>
                   </div>
                   <div className="space-y-2">
-                    <Label>Link Tracking (horas)</Label>
+                    <Label>
+                      Tracking (horas)
+                      <span className="text-xs text-muted-foreground ml-1">
+                        ({minTrackingHours}-{maxTrackingHours}h)
+                      </span>
+                    </Label>
                     <Input
                       type="number"
+                      min={minTrackingHours}
+                      max={maxTrackingHours}
                       value={config.trackingExpirationHours}
-                      onChange={(e) =>
-                        setConfig({ ...config, trackingExpirationHours: parseInt(e.target.value) || 24 })
-                      }
+                      onChange={(e) => {
+                        const v = parseInt(e.target.value) || minTrackingHours;
+                        setConfig({ ...config, trackingExpirationHours: Math.min(Math.max(v, minTrackingHours), maxTrackingHours) });
+                      }}
                       data-testid="input-tracking-hours"
                     />
                   </div>
@@ -183,7 +204,7 @@ export default function SettingsPage() {
           </Card>
         </div>
 
-        <div>
+        <div className="space-y-4">
           <Card>
             <CardHeader className="flex flex-row items-center gap-4 pb-2">
               <Crown className="w-5 h-5 text-chart-4" />
@@ -192,11 +213,11 @@ export default function SettingsPage() {
               </div>
             </CardHeader>
             <CardContent>
-              {planInfo ? (
+              {plan ? (
                 <div className="space-y-4">
                   <div className="flex items-center gap-2">
-                    <Badge variant="default" className="text-sm">
-                      {planInfo.name}
+                    <Badge variant="default" className="text-sm" data-testid="badge-current-plan">
+                      {plan.name}
                     </Badge>
                   </div>
                   <div className="space-y-2">
@@ -204,26 +225,30 @@ export default function SettingsPage() {
                       Funcionalidades
                     </p>
                     <div className="space-y-1.5">
-                      {Object.entries(planInfo.features || {}).map(([key, val]) => (
-                        <div key={key} className="flex items-center justify-between text-sm">
-                          <span className="text-muted-foreground">{key.replace(/_/g, " ")}</span>
-                          <Badge variant={val ? "default" : "secondary"}>
-                            {val ? "Si" : "No"}
-                          </Badge>
+                      {Object.entries(plan.features || {}).map(([key, val]) => (
+                        <div key={key} className="flex items-center justify-between gap-2 text-sm">
+                          <span className="text-muted-foreground">{featureLabels[key] || key}</span>
+                          {val ? (
+                            <Check className="w-4 h-4 text-chart-2 flex-shrink-0" />
+                          ) : (
+                            <X className="w-4 h-4 text-muted-foreground/40 flex-shrink-0" />
+                          )}
                         </div>
                       ))}
                     </div>
                   </div>
-                  {planInfo.limits && Object.keys(planInfo.limits).length > 0 && (
+                  {plan.limits && Object.keys(plan.limits).length > 0 && (
                     <div className="space-y-2">
                       <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
                         Límites
                       </p>
                       <div className="space-y-1.5">
-                        {Object.entries(planInfo.limits).map(([key, val]) => (
-                          <div key={key} className="flex items-center justify-between text-sm">
-                            <span className="text-muted-foreground">{key.replace(/_/g, " ")}</span>
-                            <span className="font-medium">{val === -1 ? "Ilimitado" : val}</span>
+                        {Object.entries(plan.limits).map(([key, val]) => (
+                          <div key={key} className="flex items-center justify-between gap-2 text-sm">
+                            <span className="text-muted-foreground">{limitLabels[key] || key}</span>
+                            <span className="font-medium">
+                              {val === -1 ? "Ilimitado" : val === 0 ? "No incluido" : val}
+                            </span>
                           </div>
                         ))}
                       </div>

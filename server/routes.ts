@@ -7,6 +7,8 @@ import {
   comparePassword,
   superAuth,
   tenantAuth,
+  requireFeature,
+  getTenantPlan,
 } from "./auth";
 import { randomUUID } from "crypto";
 
@@ -206,20 +208,8 @@ export async function registerRoutes(
 
   app.get("/api/me/plan", tenantAuth, async (req, res) => {
     try {
-      const tenant = await storage.getTenantById(req.auth!.tenantId!);
-      if (!tenant?.planId) {
-        return res.json({ data: null });
-      }
-      const plan = await storage.getPlanById(tenant.planId);
-      if (!plan) return res.json({ data: null });
-      res.json({
-        data: {
-          name: plan.name,
-          planCode: plan.planCode,
-          features: plan.featuresJson as Record<string, boolean>,
-          limits: plan.limitsJson as Record<string, number>,
-        },
-      });
+      const plan = await getTenantPlan(req.auth!.tenantId!);
+      res.json({ data: plan || null });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -237,8 +227,23 @@ export async function registerRoutes(
 
   app.put("/api/config", tenantAuth, async (req, res) => {
     try {
+      const tenantId = req.auth!.tenantId!;
+      const plan = await getTenantPlan(tenantId);
+      if (plan && req.body.trackingExpirationHours !== undefined) {
+        const hours = parseInt(req.body.trackingExpirationHours);
+        const minH = plan.limits.tracking_retention_min_hours || 1;
+        const maxH = plan.limits.tracking_retention_max_hours || 24;
+        if (hours < minH || hours > maxH) {
+          return res.status(400).json({
+            error: `Tu plan "${plan.name}" permite entre ${minH}h y ${maxH}h de retención de tracking.`,
+            code: "LIMIT_EXCEEDED",
+            min: minH,
+            max: maxH,
+          });
+        }
+      }
       const config = await storage.upsertConfig({
-        tenantId: req.auth!.tenantId!,
+        tenantId,
         ...req.body,
       });
       res.json({ data: config });
@@ -282,7 +287,7 @@ export async function registerRoutes(
   });
 
   // Branches
-  app.get("/api/branches", tenantAuth, async (req, res) => {
+  app.get("/api/branches", tenantAuth, requireFeature("branches"), async (req, res) => {
     try {
       const data = await storage.getBranches(req.auth!.tenantId!);
       res.json({ data });
@@ -291,10 +296,24 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/branches", tenantAuth, async (req, res) => {
+  app.post("/api/branches", tenantAuth, requireFeature("branches"), async (req, res) => {
     try {
+      const tenantId = req.auth!.tenantId!;
+      const plan = req.plan!;
+      const maxBranches = plan.limits.max_branches;
+      if (maxBranches >= 0) {
+        const existing = await storage.getBranches(tenantId);
+        if (existing.length >= maxBranches) {
+          return res.status(403).json({
+            error: `Tu plan "${plan.name}" permite máximo ${maxBranches} sucursales. Mejorá tu plan para agregar más.`,
+            code: "LIMIT_REACHED",
+            limit: "max_branches",
+            currentPlan: plan.planCode,
+          });
+        }
+      }
       const data = await storage.createBranch({
-        tenantId: req.auth!.tenantId!,
+        tenantId,
         ...req.body,
       });
       res.status(201).json({ data });
@@ -445,7 +464,7 @@ export async function registerRoutes(
   });
 
   // Cash Sessions
-  app.get("/api/cash/sessions", tenantAuth, async (req, res) => {
+  app.get("/api/cash/sessions", tenantAuth, requireFeature("cash_sessions"), async (req, res) => {
     try {
       const data = await storage.getCashSessions(req.auth!.tenantId!);
       res.json({ data });
@@ -454,7 +473,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/cash/sessions", tenantAuth, async (req, res) => {
+  app.post("/api/cash/sessions", tenantAuth, requireFeature("cash_sessions"), async (req, res) => {
     try {
       const tenantId = req.auth!.tenantId!;
       const existing = await storage.getOpenSession(tenantId);
@@ -473,7 +492,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/cash/sessions/:id/close", tenantAuth, async (req, res) => {
+  app.patch("/api/cash/sessions/:id/close", tenantAuth, requireFeature("cash_sessions"), async (req, res) => {
     try {
       await storage.closeCashSession(
         parseInt(req.params.id),
@@ -515,7 +534,7 @@ export async function registerRoutes(
   });
 
   // Product Categories
-  app.get("/api/product-categories", tenantAuth, async (req, res) => {
+  app.get("/api/product-categories", tenantAuth, requireFeature("products"), async (req, res) => {
     try {
       const data = await storage.getProductCategories(req.auth!.tenantId!);
       res.json({ data });
@@ -524,7 +543,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/product-categories", tenantAuth, async (req, res) => {
+  app.post("/api/product-categories", tenantAuth, requireFeature("products"), async (req, res) => {
     try {
       const data = await storage.createProductCategory({
         tenantId: req.auth!.tenantId!,
@@ -537,7 +556,7 @@ export async function registerRoutes(
   });
 
   // Products
-  app.get("/api/products", tenantAuth, async (req, res) => {
+  app.get("/api/products", tenantAuth, requireFeature("products"), async (req, res) => {
     try {
       const data = await storage.getProducts(req.auth!.tenantId!);
       res.json({ data });
@@ -546,7 +565,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/products", tenantAuth, async (req, res) => {
+  app.post("/api/products", tenantAuth, requireFeature("products"), async (req, res) => {
     try {
       const data = await storage.createProduct({
         tenantId: req.auth!.tenantId!,

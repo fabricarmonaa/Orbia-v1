@@ -6,7 +6,6 @@ import { eq, and } from "drizzle-orm";
 
 export async function seedDatabase() {
   try {
-    // Check if super admin exists
     const existingSuperAdmin = await storage.getSuperAdminByEmail("admin@orbia.app");
     if (existingSuperAdmin) {
       console.log("Seed: Database already seeded, skipping.");
@@ -15,7 +14,6 @@ export async function seedDatabase() {
 
     console.log("Seed: Creating initial data...");
 
-    // 1. Create Super Admin
     const hashedPassword = await hashPassword("admin123");
     await storage.createUser({
       email: "admin@orbia.app",
@@ -28,25 +26,27 @@ export async function seedDatabase() {
     });
     console.log("Seed: Super Admin created (admin@orbia.app / admin123)");
 
-    // 2. Create Plans
     const planEconomico = await storage.createPlan({
       planCode: "ECONOMICO",
       name: "Económico",
       featuresJson: {
         orders: true,
         tracking: true,
-        cash_basic: true,
-        products_basic: true,
+        cash_simple: true,
+        cash_sessions: false,
+        products: false,
         branches: false,
         fixed_expenses: false,
+        variable_expenses: false,
         reports_advanced: false,
         stt: false,
-        marketing: false,
       },
       limitsJson: {
-        max_orders_month: 200,
-        max_products: 30,
-        max_branches: 1,
+        max_branches: 0,
+        max_staff_users: 0,
+        max_orders_month: -1,
+        tracking_retention_min_hours: 12,
+        tracking_retention_max_hours: 24,
       },
       priceMonthly: "4999",
       isActive: true,
@@ -58,20 +58,21 @@ export async function seedDatabase() {
       featuresJson: {
         orders: true,
         tracking: true,
-        cash_basic: true,
-        cash_advanced: true,
-        products_basic: true,
-        products_pdf: true,
+        cash_simple: true,
+        cash_sessions: true,
+        products: true,
         branches: true,
         fixed_expenses: true,
-        reports_advanced: true,
+        variable_expenses: true,
+        reports_advanced: false,
         stt: false,
-        marketing: false,
       },
       limitsJson: {
+        max_branches: 2,
+        max_staff_users: -1,
         max_orders_month: -1,
-        max_products: -1,
-        max_branches: 3,
+        tracking_retention_min_hours: 1,
+        tracking_retention_max_hours: 168,
       },
       priceMonthly: "9999",
       isActive: true,
@@ -83,20 +84,21 @@ export async function seedDatabase() {
       featuresJson: {
         orders: true,
         tracking: true,
-        cash_basic: true,
-        cash_advanced: true,
-        products_basic: true,
-        products_pdf: true,
+        cash_simple: true,
+        cash_sessions: true,
+        products: true,
         branches: true,
         fixed_expenses: true,
+        variable_expenses: true,
         reports_advanced: true,
         stt: true,
-        marketing: true,
       },
       limitsJson: {
+        max_branches: 20,
+        max_staff_users: -1,
         max_orders_month: -1,
-        max_products: -1,
-        max_branches: -1,
+        tracking_retention_min_hours: 1,
+        tracking_retention_max_hours: 720,
       },
       priceMonthly: "19999",
       isActive: true,
@@ -104,7 +106,6 @@ export async function seedDatabase() {
 
     console.log("Seed: Plans created");
 
-    // 3. Create Demo Tenant
     const demoTenant = await storage.createTenant({
       code: "demo",
       name: "Negocio Demo",
@@ -135,7 +136,6 @@ export async function seedDatabase() {
 
     console.log("Seed: Demo tenant created (demo / admin@demo.com / demo123)");
 
-    // 4. Create default order statuses for demo
     const statuses = [
       { name: "Pendiente", color: "#F59E0B", sortOrder: 0, isFinal: false },
       { name: "En Proceso", color: "#3B82F6", sortOrder: 1, isFinal: false },
@@ -149,7 +149,6 @@ export async function seedDatabase() {
       createdStatuses.push(created);
     }
 
-    // 5. Create demo branches
     const branch1 = await storage.createBranch({
       tenantId: demoTenant.id,
       name: "Casa Central",
@@ -165,7 +164,6 @@ export async function seedDatabase() {
       isActive: true,
     });
 
-    // 6. Create product categories and products
     const cat1 = await storage.createProductCategory({
       tenantId: demoTenant.id,
       name: "Servicios",
@@ -228,7 +226,6 @@ export async function seedDatabase() {
       isActive: true,
     });
 
-    // 7. Create demo orders
     const order1 = await storage.createOrder({
       tenantId: demoTenant.id,
       branchId: branch1.id,
@@ -256,7 +253,7 @@ export async function seedDatabase() {
       note: "Comenzando reparación",
     });
 
-    const order2 = await storage.createOrder({
+    await storage.createOrder({
       tenantId: demoTenant.id,
       branchId: branch1.id,
       orderNumber: 2,
@@ -302,7 +299,6 @@ export async function seedDatabase() {
       note: "Listo para retirar",
     });
 
-    // Add comments
     await storage.createOrderComment({
       tenantId: demoTenant.id,
       orderId: order1.id,
@@ -318,7 +314,6 @@ export async function seedDatabase() {
       isPublic: true,
     });
 
-    // 8. Create demo cash movements
     const session = await storage.createCashSession({
       tenantId: demoTenant.id,
       userId: demoAdmin.id,

@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
 import { apiRequest } from "@/lib/auth";
+import { usePlan } from "@/lib/plan";
+import { UpgradePrompt } from "@/components/upgrade-prompt";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -26,6 +28,7 @@ import { useToast } from "@/hooks/use-toast";
 import type { Product, ProductCategory } from "@shared/schema";
 
 export default function ProductsPage() {
+  const { hasFeature, loading: planLoading } = usePlan();
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<ProductCategory[]>([]);
   const [loading, setLoading] = useState(true);
@@ -44,9 +47,12 @@ export default function ProductsPage() {
   });
   const [newCat, setNewCat] = useState("");
 
+  const canAccess = hasFeature("products");
+
   useEffect(() => {
-    fetchData();
-  }, []);
+    if (canAccess) fetchData();
+    else setLoading(false);
+  }, [canAccess]);
 
   async function fetchData() {
     try {
@@ -93,6 +99,25 @@ export default function ProductsPage() {
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
     }
+  }
+
+  if (planLoading) {
+    return (
+      <div className="space-y-6">
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-64 w-full rounded-md" />
+      </div>
+    );
+  }
+
+  if (!canAccess) {
+    return (
+      <UpgradePrompt
+        feature="products"
+        title="Productos"
+        description="Catálogo de productos y servicios"
+      />
+    );
   }
 
   const filteredProducts = products.filter((p) => {

@@ -19,23 +19,34 @@ import {
   Building2,
   Settings,
   LogOut,
+  Lock,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
+import { usePlan } from "@/lib/plan";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
-const menuItems = [
+interface MenuItem {
+  title: string;
+  url: string;
+  icon: any;
+  feature?: string;
+}
+
+const menuItems: MenuItem[] = [
   { title: "Dashboard", url: "/app", icon: LayoutDashboard },
   { title: "Pedidos", url: "/app/orders", icon: ClipboardList },
   { title: "Caja", url: "/app/cash", icon: Wallet },
-  { title: "Productos", url: "/app/products", icon: Package },
-  { title: "Sucursales", url: "/app/branches", icon: Building2 },
+  { title: "Productos", url: "/app/products", icon: Package, feature: "products" },
+  { title: "Sucursales", url: "/app/branches", icon: Building2, feature: "branches" },
   { title: "Configuración", url: "/app/settings", icon: Settings },
 ];
 
 export function AppSidebar() {
   const [location] = useLocation();
   const { user, logout } = useAuth();
+  const { plan, hasFeature } = usePlan();
 
   function isActive(url: string) {
     if (url === "/app") return location === "/app";
@@ -63,7 +74,14 @@ export function AppSidebar() {
           </div>
           <div className="min-w-0">
             <p className="font-bold text-sm tracking-tight truncate">ORBIA</p>
-            <p className="text-xs text-muted-foreground truncate">{user?.role === "admin" ? "Administrador" : "Staff"}</p>
+            <div className="flex items-center gap-1.5">
+              <p className="text-xs text-muted-foreground truncate">{user?.role === "admin" ? "Administrador" : "Staff"}</p>
+              {plan && (
+                <Badge variant="secondary" className="text-[10px]" data-testid="badge-plan-name">
+                  {plan.name}
+                </Badge>
+              )}
+            </div>
           </div>
         </div>
       </SidebarHeader>
@@ -72,16 +90,23 @@ export function AppSidebar() {
           <SidebarGroupLabel>Menú</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {menuItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild isActive={isActive(item.url)}>
-                    <Link href={item.url} data-testid={`nav-${item.title.toLowerCase()}`}>
-                      <item.icon className="w-4 h-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+              {menuItems.map((item) => {
+                const blocked = item.feature && !hasFeature(item.feature);
+                return (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton asChild isActive={isActive(item.url)}>
+                      <Link
+                        href={item.url}
+                        data-testid={`nav-${item.title.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")}`}
+                      >
+                        <item.icon className="w-4 h-4" />
+                        <span className={blocked ? "text-muted-foreground" : ""}>{item.title}</span>
+                        {blocked && <Lock className="w-3 h-3 ml-auto text-muted-foreground" />}
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useAuth } from "@/lib/auth";
+import { fetchPlan, clearPlanCache } from "@/lib/plan";
 import { useLocation, Route, Switch } from "wouter";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
@@ -17,7 +18,10 @@ export default function AppLayout() {
 
   useEffect(() => {
     if (!isAuthenticated || user?.isSuperAdmin) {
+      clearPlanCache();
       setLocation("/login");
+    } else {
+      fetchPlan();
     }
   }, [isAuthenticated, user]);
 

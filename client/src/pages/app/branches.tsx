@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
 import { apiRequest } from "@/lib/auth";
+import { usePlan } from "@/lib/plan";
+import { UpgradePrompt } from "@/components/upgrade-prompt";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -18,6 +20,7 @@ import { useToast } from "@/hooks/use-toast";
 import type { Branch } from "@shared/schema";
 
 export default function BranchesPage() {
+  const { hasFeature, getLimit, plan, loading: planLoading } = usePlan();
   const [branches, setBranches] = useState<Branch[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -29,9 +32,13 @@ export default function BranchesPage() {
     phone: "",
   });
 
+  const canAccess = hasFeature("branches");
+  const maxBranches = getLimit("max_branches");
+
   useEffect(() => {
-    fetchData();
-  }, []);
+    if (canAccess) fetchData();
+    else setLoading(false);
+  }, [canAccess]);
 
   async function fetchData() {
     try {
@@ -58,16 +65,48 @@ export default function BranchesPage() {
     }
   }
 
+  if (planLoading) {
+    return (
+      <div className="space-y-6">
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-64 w-full rounded-md" />
+      </div>
+    );
+  }
+
+  if (!canAccess) {
+    return (
+      <UpgradePrompt
+        feature="branches"
+        title="Sucursales"
+        description="Gestión de sedes y puntos de atención"
+      />
+    );
+  }
+
+  const atLimit = maxBranches >= 0 && branches.length >= maxBranches;
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Sucursales</h1>
-          <p className="text-muted-foreground">Gestión de sedes y puntos de atención</p>
+          <p className="text-muted-foreground">
+            Gestión de sedes y puntos de atención
+            {maxBranches >= 0 && (
+              <span className="ml-2 text-xs">
+                ({branches.length}/{maxBranches} usadas)
+              </span>
+            )}
+          </p>
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
-            <Button data-testid="button-create-branch">
+            <Button
+              data-testid="button-create-branch"
+              disabled={atLimit}
+              title={atLimit ? `Tu plan permite máximo ${maxBranches} sucursales` : undefined}
+            >
               <Plus className="w-4 h-4 mr-2" />
               Nueva Sucursal
             </Button>
@@ -112,6 +151,17 @@ export default function BranchesPage() {
           </DialogContent>
         </Dialog>
       </div>
+
+      {atLimit && (
+        <Card className="border-chart-4/30">
+          <CardContent className="py-3">
+            <p className="text-sm text-muted-foreground">
+              Alcanzaste el límite de <strong>{maxBranches}</strong> sucursales de tu plan{" "}
+              <Badge variant="secondary">{plan?.name}</Badge>. Mejorá tu plan para agregar más.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       {loading ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">

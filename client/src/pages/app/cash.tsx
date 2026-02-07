@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { apiRequest } from "@/lib/auth";
+import { usePlan } from "@/lib/plan";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -27,11 +28,13 @@ import {
   ArrowDownRight,
   DoorOpen,
   DoorClosed,
+  Lock,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { CashSession, CashMovement } from "@shared/schema";
 
 export default function CashPage() {
+  const { hasFeature, plan } = usePlan();
   const [sessions, setSessions] = useState<CashSession[]>([]);
   const [movements, setMovements] = useState<CashMovement[]>([]);
   const [loading, setLoading] = useState(true);
@@ -40,6 +43,8 @@ export default function CashPage() {
   const [sessionDialogOpen, setSessionDialogOpen] = useState(false);
   const [closeDialogOpen, setCloseDialogOpen] = useState(false);
   const { toast } = useToast();
+
+  const canUseSessions = hasFeature("cash_sessions");
 
   const [newMovement, setNewMovement] = useState({
     type: "ingreso",
@@ -54,21 +59,26 @@ export default function CashPage() {
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [canUseSessions]);
 
   async function fetchData() {
     try {
-      const [sessionsRes, movementsRes] = await Promise.all([
-        apiRequest("GET", "/api/cash/sessions"),
+      const promises: Promise<Response>[] = [
         apiRequest("GET", "/api/cash/movements"),
-      ]);
-      const sessionsData = await sessionsRes.json();
-      const movementsData = await movementsRes.json();
-      setSessions(sessionsData.data || []);
+      ];
+      if (canUseSessions) {
+        promises.push(apiRequest("GET", "/api/cash/sessions"));
+      }
+      const results = await Promise.all(promises);
+      const movementsData = await results[0].json();
       setMovements(movementsData.data || []);
 
-      const open = (sessionsData.data || []).find((s: CashSession) => s.status === "open");
-      setOpenSession(open || null);
+      if (canUseSessions && results[1]) {
+        const sessionsData = await results[1].json();
+        setSessions(sessionsData.data || []);
+        const open = (sessionsData.data || []).find((s: CashSession) => s.status === "open");
+        setOpenSession(open || null);
+      }
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
     } finally {
@@ -113,7 +123,7 @@ export default function CashPage() {
       await apiRequest("POST", "/api/cash/movements", {
         ...newMovement,
         amount: parseFloat(newMovement.amount),
-        sessionId: openSession?.id,
+        sessionId: openSession?.id || null,
       });
       toast({ title: "Movimiento registrado" });
       setDialogOpen(false);
@@ -147,39 +157,159 @@ export default function CashPage() {
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Caja</h1>
-          <p className="text-muted-foreground">Control de ingresos y egresos</p>
+          <p className="text-muted-foreground">
+            Control de ingresos y egresos
+            {!canUseSessions && (
+              <span className="ml-2 text-xs">(modo simple)</span>
+            )}
+          </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          {!openSession ? (
-            <Dialog open={sessionDialogOpen} onOpenChange={setSessionDialogOpen}>
-              <DialogTrigger asChild>
-                <Button data-testid="button-open-session">
-                  <DoorOpen className="w-4 h-4 mr-2" />
-                  Abrir Caja
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Abrir Caja</DialogTitle>
-                </DialogHeader>
-                <form onSubmit={openCashSession} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label>Monto Inicial</Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      placeholder="0.00"
-                      value={openingAmount}
-                      onChange={(e) => setOpeningAmount(e.target.value)}
-                      data-testid="input-opening-amount"
-                    />
-                  </div>
-                  <Button type="submit" className="w-full" data-testid="button-confirm-open">
-                    Abrir Caja
-                  </Button>
-                </form>
-              </DialogContent>
-            </Dialog>
+          {canUseSessions ? (
+            <>
+              {!openSession ? (
+                <Dialog open={sessionDialogOpen} onOpenChange={setSessionDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button data-testid="button-open-session">
+                      <DoorOpen className="w-4 h-4 mr-2" />
+                      Abrir Caja
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Abrir Caja</DialogTitle>
+                    </DialogHeader>
+                    <form onSubmit={openCashSession} className="space-y-4">
+                      <div className="space-y-2">
+                        <Label>Monto Inicial</Label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          placeholder="0.00"
+                          value={openingAmount}
+                          onChange={(e) => setOpeningAmount(e.target.value)}
+                          data-testid="input-opening-amount"
+                        />
+                      </div>
+                      <Button type="submit" className="w-full" data-testid="button-confirm-open">
+                        Abrir Caja
+                      </Button>
+                    </form>
+                  </DialogContent>
+                </Dialog>
+              ) : (
+                <>
+                  <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button data-testid="button-add-movement">
+                        <Plus className="w-4 h-4 mr-2" />
+                        Movimiento
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Nuevo Movimiento</DialogTitle>
+                      </DialogHeader>
+                      <form onSubmit={addMovement} className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label>Tipo</Label>
+                            <Select value={newMovement.type} onValueChange={(v) => setNewMovement({ ...newMovement, type: v })}>
+                              <SelectTrigger data-testid="select-movement-type">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="ingreso">Ingreso</SelectItem>
+                                <SelectItem value="egreso">Egreso</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Monto</Label>
+                            <Input
+                              type="number"
+                              step="0.01"
+                              placeholder="0.00"
+                              value={newMovement.amount}
+                              onChange={(e) => setNewMovement({ ...newMovement, amount: e.target.value })}
+                              required
+                              data-testid="input-movement-amount"
+                            />
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label>Método</Label>
+                            <Select value={newMovement.method} onValueChange={(v) => setNewMovement({ ...newMovement, method: v })}>
+                              <SelectTrigger data-testid="select-movement-method">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="efectivo">Efectivo</SelectItem>
+                                <SelectItem value="transferencia">Transferencia</SelectItem>
+                                <SelectItem value="tarjeta">Tarjeta</SelectItem>
+                                <SelectItem value="mercadopago">MercadoPago</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Categoría</Label>
+                            <Input
+                              placeholder="Ej: Ventas"
+                              value={newMovement.category}
+                              onChange={(e) => setNewMovement({ ...newMovement, category: e.target.value })}
+                              data-testid="input-movement-category"
+                            />
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Descripción</Label>
+                          <Input
+                            placeholder="Detalle del movimiento"
+                            value={newMovement.description}
+                            onChange={(e) => setNewMovement({ ...newMovement, description: e.target.value })}
+                            data-testid="input-movement-description"
+                          />
+                        </div>
+                        <Button type="submit" className="w-full" data-testid="button-submit-movement">
+                          Registrar Movimiento
+                        </Button>
+                      </form>
+                    </DialogContent>
+                  </Dialog>
+
+                  <Dialog open={closeDialogOpen} onOpenChange={setCloseDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button variant="outline" data-testid="button-close-session">
+                        <DoorClosed className="w-4 h-4 mr-2" />
+                        Cerrar Caja
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Cerrar Caja</DialogTitle>
+                      </DialogHeader>
+                      <form onSubmit={closeCashSession} className="space-y-4">
+                        <div className="space-y-2">
+                          <Label>Monto de Cierre</Label>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            placeholder="0.00"
+                            value={closingAmount}
+                            onChange={(e) => setClosingAmount(e.target.value)}
+                            data-testid="input-closing-amount"
+                          />
+                        </div>
+                        <Button type="submit" className="w-full" data-testid="button-confirm-close">
+                          Cerrar Caja
+                        </Button>
+                      </form>
+                    </DialogContent>
+                  </Dialog>
+                </>
+              )}
+            </>
           ) : (
             <>
               <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -220,31 +350,6 @@ export default function CashPage() {
                         />
                       </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label>Método</Label>
-                        <Select value={newMovement.method} onValueChange={(v) => setNewMovement({ ...newMovement, method: v })}>
-                          <SelectTrigger data-testid="select-movement-method">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="efectivo">Efectivo</SelectItem>
-                            <SelectItem value="transferencia">Transferencia</SelectItem>
-                            <SelectItem value="tarjeta">Tarjeta</SelectItem>
-                            <SelectItem value="mercadopago">MercadoPago</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Categoría</Label>
-                        <Input
-                          placeholder="Ej: Ventas"
-                          value={newMovement.category}
-                          onChange={(e) => setNewMovement({ ...newMovement, category: e.target.value })}
-                          data-testid="input-movement-category"
-                        />
-                      </div>
-                    </div>
                     <div className="space-y-2">
                       <Label>Descripción</Label>
                       <Input
@@ -260,42 +365,26 @@ export default function CashPage() {
                   </form>
                 </DialogContent>
               </Dialog>
-
-              <Dialog open={closeDialogOpen} onOpenChange={setCloseDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button variant="outline" data-testid="button-close-session">
-                    <DoorClosed className="w-4 h-4 mr-2" />
-                    Cerrar Caja
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Cerrar Caja</DialogTitle>
-                  </DialogHeader>
-                  <form onSubmit={closeCashSession} className="space-y-4">
-                    <div className="space-y-2">
-                      <Label>Monto de Cierre</Label>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        placeholder="0.00"
-                        value={closingAmount}
-                        onChange={(e) => setClosingAmount(e.target.value)}
-                        data-testid="input-closing-amount"
-                      />
-                    </div>
-                    <Button type="submit" className="w-full" data-testid="button-confirm-close">
-                      Cerrar Caja
-                    </Button>
-                  </form>
-                </DialogContent>
-              </Dialog>
             </>
           )}
         </div>
       </div>
 
-      {openSession && (
+      {!canUseSessions && (
+        <Card className="border-chart-4/30">
+          <CardContent className="py-3">
+            <div className="flex items-center gap-2">
+              <Lock className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+              <p className="text-sm text-muted-foreground">
+                Tu plan <Badge variant="secondary">{plan?.name}</Badge> incluye caja simple (ingresos/egresos).
+                Mejorá al plan Profesional para usar apertura/cierre de sesión y movimientos categorizados.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {canUseSessions && openSession && (
         <Card className="border-primary/30">
           <CardContent className="pt-6">
             <div className="flex items-center gap-2 mb-3">
