@@ -1,0 +1,653 @@
+Sos un agente senior y vas a construir ORBI A desde 0, como un SaaS multi-tenant para PyMEs. El objetivo es un sistema productivo y vendible, con:
+
+Gestión de Pedidos/Servicios (ABM + estados + historial + comentarios)
+
+Link público temporal de seguimiento (sin login de cliente final)
+
+Caja/Tesorería (apertura/cierre, movimientos, métricas por períodos)
+
+Gastos fijos y variables configurables
+
+Productos + export PDF de lista
+
+Sucursales (sub-entidades del tenant, NO tenants)
+
+Historial por períodos (día/semana/mes/año) para reportes/auditoría
+
+IA STT real para carga operativa (microservicio Python, nada de mocks)
+
+Preparación para addons: WhatsApp bot, Delivery, Landing SEO por cliente, Meta Pixel
+
+Control por plan (económico/profesional/avanzado) con feature flags y límites reales
+
+1) Reglas NO negociables
+
+NO usar mocks. Todo debe tener persistencia real en MySQL y endpoints funcionales.
+
+Multi-tenant obligatorio: cada request del panel de clientes debe estar atado a tenant_id.
+
+Flujos de auth separados:
+
+SUPER ADMIN (Dueño Orbia) entra por endpoint protegido exclusivo.
+
+Tenant Admin/Staff entra por login tenant.
+
+Cliente final NO se loguea: solo tracking público temporal.
+
+Seguridad:
+
+JWT con claims (tenant_id, role, user_id, opcional branch_id).
+
+Validación de pertenencia (ownership) en cada comando/handler.
+
+Enlaces públicos firmados con expiración y scope limitado.
+
+Tecnologías:
+
+Backend principal: Node.js + MySQL.
+
+Arquitectura: estilo DDD/CQRS (commands/queries separados, con validaciones fuertes).
+
+Microservicio IA: Python (FastAPI) con STT real.
+
+Configurable por tenant: estados, gastos, expiración de links, campos, módulos visibles, etc.
+
+Control por plan: cada plan habilita módulos/limits. Debe existir middleware requireFeature("X") y enforceLimit("Y").
+
+2) Accesos / endpoints separados (muy importante)
+A) SUPER ADMIN (Owner de Orbia, único dueño)
+
+Administra tenants, planes, límites, config global, métricas globales.
+DB root (schema t_root) separada del resto.
+
+Endpoints:
+
+POST /auth/super/login
+
+POST /super/tenants → onboarding atómico: tenant + admin + config inicial + subscription
+
+GET /super/tenants
+
+PATCH /super/tenants/:tenantId/plan
+
+GET /super/metrics
+
+Regla: el token del super admin NO usa tenant_id (es root).
+
+B) Tenant Admin / Staff (clientes Orbia)
+
+Usan panel completo según plan.
+
+Endpoints:
+
+POST /auth/login (tenant_code + dni/email + password)
+
+GET /me
+
+GET /config / PUT /config (config total del tenant)
+
+CRUD por módulo: orders, cash, expenses, products, branches, etc.
+
+Regla: TODA operación filtra por tenant_id. Nada cruza.
+
+C) Cliente final del negocio (público)
+
+No tiene cuenta. Solo link tracking temporal.
+Endpoint público:
+
+GET /public/tracking/:public_tracking_id
+
+Reglas:
+
+Expira por defecto: 24h después de que la orden queda CLOSED, pero configurable por tenant.
+
+Retorna solo info permitida: estado, timestamps, historial público, notas públicas.
+
+Debe soportar revocación manual del link.
+
+3) Dominio y módulos (MVP vendible, real)
+3.1 Pedidos/Servicios (CORE)
+
+Un pedido representa trabajo/encargo/turno/servicio.
+
+Entidades mínimas:
+
+orders
+
+order_statuses (configurables por tenant)
+
+order_status_history
+
+order_comments (con flag is_public)
+
+order_public_links (tracking tokens)
+Campos clave:
+
+order_number (por tenant)
+
+type (PEDIDO | ENCARGO | TURNO | SERVICIO)
+
+status_id
+
+scheduled_at (si aplica)
+
+closed_at
+
+public_tracking_id (uuid/ulid/hash único)
+
+tracking_expires_at (calculado por config tenant)
+Operaciones:
+
+Crear pedido
+
+Cambiar estado (guarda historial)
+
+Agregar comentario (public/private)
+
+Cerrar pedido (set closed_at + calcula expiración)
+
+Generar link público (con expiración)
+
+Revocar link público
+
+3.2 Caja / Tesorería (CORE vendedor)
+
+Objetivos:
+
+Apertura/cierre por sesión
+
+Movimientos reales ingreso/egreso
+
+Gastos fijos y variables
+
+Métricas mensuales y por períodos
+
+Export CSV/PDF (mínimo CSV al principio)
+
+Entidades:
+
+cash_sessions (open/close, user, branch, opening_amount, closing_amount, difference)
+
+cash_movements (ingreso/egreso, monto, método, categoría, referencia a order opcional)
+
+expense_categories
+
+fixed_expenses (periodicidad, día pago, monto, categoría, activo)
+
+variable_expenses (manual o vinculado)
+
+period_snapshots (para resúmenes por período)
+
+Fórmula (mensual / por período):
+profit = income_total - fixed_expenses_total - variable_expenses_total - cogs_total(optional)
+En MVP: income = movimientos INGRESO; expenses = EGRESO + fijos.
+
+Reset mensual SOLO de “cálculo”, pero se conserva histórico.
+
+3.3 Sucursales
+
+Un tenant puede tener N sucursales según plan.
+Entidades:
+
+branches
+
+FK desde orders, cash_sessions, cash_movements (branch_id nullable para “general”)
+Reportes:
+
+por sucursal
+
+consolidado
+
+3.4 Productos + PDF lista precios
+
+Entidades:
+
+products
+
+product_categories
+Features:
+
+ABM productos y categorías
+
+Exportar PDF de lista de precios (por categoría + búsqueda)
+
+3.5 Historial por períodos (día/semana/mes/año)
+
+Entidad:
+
+period_snapshots con:
+
+tenant_id
+
+entity_type (orders/cash/profit/branches/products)
+
+period_type (DAY/WEEK/MONTH/YEAR)
+
+period_key (ej: 2026-02, 2026-W05, 2026-02-06)
+
+snapshot_json
+Uso:
+
+base para reportes y auditoría
+
+generación incremental (job diario/semanal/mensual)
+
+3.6 Marketing (solo plan alto)
+
+Entidad:
+
+tenant_marketing_settings:
+
+meta title/description/keywords
+
+pixel id
+
+scripts opcionales
+Landing:
+
+ruta pública opcional por tenant /p/:tenant_slug (MVP simple)
+
+4) IA — STT real como microservicio Python (sin depender del navegador)
+
+Implementar un microservicio Python FastAPI con STT real.
+No usar WebSpeech API. No mocks.
+
+4.1 Microservicio ai-service/
+
+FastAPI + endpoint POST /stt/transcribe
+
+Recibe audio (multipart) + language + context (orders/cash/products) + tenant_id + user_id (firmado desde backend)
+
+Devuelve JSON:
+
+transcript (texto)
+
+confidence (si el modelo lo permite)
+
+intent (clasificación simple)
+
+structured_command (ej: create_order / add_cash_movement / create_product)
+
+extracted_fields (monto, cliente, fecha, items, etc.)
+
+Usar un modelo real:
+
+Preferido: faster-whisper (más rápido) o whisper.
+
+Si el entorno no soporta GPU: correr CPU y optimizar (small/base).
+
+Registrar todo en MySQL en stt_logs (sin datos sensibles de audio guardado por defecto; guardar metadata y transcript).
+
+4.2 Flujo correcto (sin inventar)
+
+Frontend graba audio (WebRTC MediaRecorder) y lo manda al backend Node.
+
+Backend Node valida auth/tenant/feature flag STT.
+
+Backend Node reenvía el audio al ai-service (interno) con tenant_id/user_id.
+
+ai-service transcribe y devuelve comando estructurado.
+
+Backend Node ejecuta el command real (crear pedido / movimiento / producto) y responde.
+
+Importante: el microservicio IA NO toca directamente la DB del dominio para no romper arquitectura; solo devuelve transcripción + parsing.
+
+5) Planes y limitaciones (pensado para empujar al intermedio)
+
+Definir planes con features + límites reales. Guardar en t_root.plans:
+
+Campos recomendados:
+
+plan_code (ECONOMICO / PROFESIONAL / ESCALA)
+
+features_json (flags)
+
+limits_json (números)
+
+price_monthly (opcional)
+
+is_active
+
+5.1 ECONÓMICO (con trabas)
+
+Objetivo: sirve, pero queda corto.
+Habilita:
+
+Pedidos/Servicios + tracking público
+
+Caja SIMPLE: movimientos básicos (sin fijos automáticos)
+
+1 sucursal (o 1 “principal”)
+
+Reportes básicos por período (solo mes actual)
+Limitaciones:
+
+pocas órdenes mensuales (ej 200/mes)
+
+sin productos PDF o muy limitado (ej “hasta 30 productos”)
+
+sin gastos fijos/variables automáticos
+
+sin snapshots avanzados
+
+sin IA STT
+
+sin marketing/pixel/landing
+
+5.2 PROFESIONAL (plan objetivo)
+
+Habilita TODO lo que un negocio necesita:
+
+Pedidos/Servicios completo
+
+Tracking público configurable
+
+Caja con apertura/cierre + movimientos + export CSV
+
+Gastos fijos y variables + cálculo mensual automático
+
+Productos + categorías + PDF lista precios
+
+2–3 sucursales (según estrategia)
+
+Snapshots por períodos (día/mes) + reportes claros
+Limitaciones:
+
+sin IA STT
+
+sin landing SEO + pixel (o pixel básico solo)
+
+5.3 ESCALA / PLUS (avanzado)
+
+Habilita:
+
+TODO Profesional +
+
+IA STT (voice → comandos reales)
+
+Sucursales ampliadas
+
+Marketing settings + Pixel + landing
+
+Historial completo + snapshots día/semana/mes/año
+
+Preparación addons: WhatsApp bot, Delivery
+
+5.4 Addons (desactivados por ahora)
+
+Diseñar tenant_addons para activarlos luego:
+
+whatsapp_bot
+
+delivery
+
+seo_landing_pro
+
+meta_pixel_pro
+
+6) Implementación backend (Node) — DDD/CQRS aplicable
+
+Estructura obligatoria:
+
+backend/
+  src/
+    app.js
+    config/
+    interfaces/http/
+      router.js
+      middleware/
+        superAuth.js
+        tenantAuth.js
+        publicTracking.js
+        requireFeature.js
+        enforceLimit.js
+        errorHandler.js
+    application/
+      commands/
+      queries/
+      handlers/
+      services/
+    domain/
+      orders/
+      cash/
+      products/
+      branches/
+      config/
+    infrastructure/
+      db/mysql.js
+      repositories/
+      aiClient/
+
+
+Reglas:
+
+Cada CommandHandler valida:
+
+token
+
+tenant_id
+
+ownership (order belongs tenant, branch belongs tenant)
+
+plan features/limits
+
+Cada Query filtra tenant_id.
+
+Public tracking:
+
+no auth
+
+valida expiración + revocación
+
+retorna solo campos permitidos
+
+7) Persistencia real: migraciones MySQL
+
+Crear migraciones SQL versionadas:
+
+001_root.sql (schema t_root)
+
+owner_users
+
+tenants
+
+plans
+
+tenant_subscriptions
+
+tenant_audit
+
+002_tenant_core.sql
+
+tenant_users
+
+roles/permisos
+
+tenant_config (json config + retention hours + language)
+
+branches
+
+003_orders.sql
+
+orders
+
+order_statuses
+
+order_status_history
+
+order_comments
+
+order_public_links (token, expires_at, revoked_at)
+
+004_cash.sql
+
+cash_sessions
+
+cash_movements
+
+expense_categories
+
+fixed_expenses
+
+variable_expenses
+
+005_products.sql
+
+products
+
+product_categories
+
+006_periods.sql
+
+period_snapshots
+
+007_ai.sql
+
+stt_logs
+
+Todas las tablas tenant: tenant_id NOT NULL + índices compuestos por tenant.
+
+8) Frontend (React) — panel real, configurable y por planes
+
+Rutas:
+
+/owner → portal dueño Orbia
+
+/app → portal tenant
+
+/public/tracking/:id → vista pública
+
+Pantallas mínimas:
+
+Owner
+
+Login
+
+Tenants list + create tenant (onboarding)
+
+Cambiar plan
+
+Métricas globales
+
+Tenant
+
+Dashboard (consolidado + por sucursal)
+
+Pedidos: listado + detalle + cambio estado + comentarios + generar link tracking
+
+Caja: abrir/cerrar + movimientos + gastos fijos/variables + resumen mensual
+
+Productos: ABM + export PDF lista precios
+
+Sucursales: ABM + métricas
+
+Configuración:
+
+perfil negocio
+
+plan y límites visibles
+
+expiración tracking (horas)
+
+idioma STT
+
+branding básico
+
+(si plan lo permite) marketing/pixel/landing
+
+Público
+
+tracking view (estado + historial público + notas públicas)
+
+9) Audio en frontend (cross-browser) y STT real
+
+Implementar grabación con MediaRecorder (estándar).
+
+Botón “Grabar”
+
+Stop → envía blob al backend
+
+Backend → ai-service → devuelve transcripción + comando
+
+UI muestra “Transcripción” y “Aplicar” para ejecutar comando real (o auto-ejecutar si confianza alta)
+
+Endpoints Node:
+
+POST /ai/stt (tenant protegido, requiere feature STT)
+
+recibe audio + contexto
+
+reenvía a ai-service
+
+ejecuta command real
+
+retorna resultado creado
+
+10) Criterios de calidad (obligatorio)
+
+Respuestas API consistentes { ok, data, error }
+
+Errores con statusCode, message, details
+
+Logs útiles sin filtrar secretos
+
+Migraciones versionadas + script npm run migrate
+
+Tests mínimos si hay tiempo: tenant isolation + tracking expiry
+
+11) Entregables que tenés que implementar SÍ O SÍ
+
+Multi-tenant completo (DB + middleware + ownership)
+
+Auth separado (superadmin vs tenant)
+
+Pedidos: CRUD + estados configurables + historial + comentarios + tracking público temporal
+
+Caja: movimientos + apertura/cierre + gastos fijos/variables + cálculo mensual + export CSV
+
+Sucursales: CRUD + reportes por sucursal y consolidado
+
+Productos: CRUD + categorías + export PDF
+
+Feature flags + límites por plan
+
+IA STT: microservicio Python real + integración real end-to-end (audio → transcribe → comando → DB)
+
+NO mocks. Todo funcional.
+
+12) Orden de ejecución (para que no se disperse)
+
+Etapa 1: Bootstrap monorepo + DB + migraciones + /health
+Etapa 2: Auth superadmin + CRUD tenants + planes + subscriptions
+Etapa 3: Auth tenant + tenant_config + branches
+Etapa 4: Orders completo + tracking público temporal
+Etapa 5: Cash completo + expenses + métricas por período
+Etapa 6: Products + PDF
+Etapa 7: Feature flags/limits (enforce) y UI según plan
+Etapa 8: ai-service Python + endpoint /ai/stt end-to-end
+Etapa 9: Snapshots por período + reportes
+
+En cada etapa: correr y probar endpoints con ejemplos.
+
+ARRANCÁ AHORA
+
+Creá el repositorio con:
+
+backend/ Node
+
+ai-service/ Python FastAPI
+
+frontend/ React
+
+db/migrations/
+Y dejá funcionando:
+
+Migraciones
+
+Owner login
+
+Crear tenant con plan + admin
+
+Tenant login
+
+No escribas teoría. Escribí archivos y código ejecutable.
