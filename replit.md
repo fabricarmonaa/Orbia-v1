@@ -1,13 +1,14 @@
 # ORBIA - SaaS Multi-Tenant para PyMEs
 
 ## Overview
-ORBIA is a multi-tenant SaaS platform for SMBs (PyMEs). It provides order management, treasury/cash control, product catalogs, branch management, and public tracking links.
+ORBIA is a multi-tenant SaaS platform for SMBs (PyMEs). It provides order management, treasury/cash control, product catalogs, branch management, and public tracking links. Supports branch-level multi-tenancy with scope-based access control.
 
 ## Architecture
 - **Frontend**: React + Vite + TypeScript + Tailwind CSS + shadcn/ui
 - **Backend**: Express.js + TypeScript
 - **Database**: PostgreSQL with Drizzle ORM
-- **Auth**: JWT-based (separate flows: Super Admin vs Tenant Admin vs Public tracking)
+- **Auth**: JWT-based (separate flows: Super Admin vs Tenant Admin vs Delivery Agent vs Public tracking)
+- **AI Service**: Python FastAPI microservice (ai-service/) for STT, using faster-whisper + regex-based intent parsing
 
 ## Access Flows
 1. **Super Admin** (`/owner/login`): admin@orbia.app / admin123
@@ -16,13 +17,20 @@ ORBIA is a multi-tenant SaaS platform for SMBs (PyMEs). It provides order manage
 4. **Delivery Agent** (`/delivery/login`): Code: demo, DNI: 30123456, PIN: 1234
 
 ## Key Modules
-- **Orders**: CRUD + status management + comments + public tracking links + branch column display + delivery toggle
+- **Orders**: CRUD + status management + comments + public tracking links + branch column display + delivery toggle + order auditing (createdByScope, createdByBranchId)
 - **Cash/Treasury**: Session open/close + income/expense movements
-- **Products**: CRUD + categories + cost/stock tracking + edit modal + activate/deactivate toggle + PDF export
+- **Products**: CRUD + categories + cost/stock tracking + edit modal + activate/deactivate toggle + PDF export + stock by branch dialog
 - **Branches**: Multi-branch support per tenant + branch detail panel with filtered orders/cash
 - **Plans**: Feature flags + limits (ECONOMICO / PROFESIONAL / ESCALA)
-- **STT Voice Commands** (ESCALA plan only): Whisper transcription + GPT-4.1-mini intent extraction for orders, cash, and products
+- **STT Voice Commands** (ESCALA plan only): Proxied to Python AI microservice for transcription + regex intent extraction
 - **Delivery** (addon, per-tenant): Agent management + route building + action states config + photo proofs + delivery tracking
+- **Stock Management**: Per-branch stock tracking with audit trail (productStockByBranch + stockMovements tables)
+
+## Scope-Based Access Control
+- **User scopes**: `TENANT` (full access) or `BRANCH` (restricted to assigned branch)
+- **JWT includes**: `scope` and `branchId` fields
+- **Middleware**: `enforceBranchScope` restricts BRANCH users to their branch data; `blockBranchScope` blocks BRANCH users entirely from certain operations
+- **Order auditing**: Each order records `createdByScope` and `createdByBranchId` from the JWT of the creator
 
 ## Delivery Module
 - **Addon activation**: Super admin enables per tenant via toggle in Owner panel (tenant_addons table)
@@ -33,6 +41,13 @@ ORBIA is a multi-tenant SaaS platform for SMBs (PyMEs). It provides order manage
 - **Order integration**: Orders can toggle requiresDelivery, with deliveryAddress (calle+número), deliveryCity, deliveryAddressNotes, deliveryStatus fields
 - **Google Maps**: No API key needed - uses redirect URLs (`https://www.google.com/maps/search/?api=1&query=...`) from delivery panel and order detail
 
+## AI Service (ai-service/)
+- **Architecture**: Separate Python FastAPI microservice, configurable via `AI_SERVICE_URL` env var (default: http://localhost:8001)
+- **STT**: faster-whisper (base model, CPU, int8) for speech-to-text
+- **Intent parsing**: Regex-based extraction for orders/cash/products contexts (no LLM dependency)
+- **Graceful degradation**: If AI service is unavailable, Express returns 503 with `AI_SERVICE_UNAVAILABLE` code
+- **Run**: `cd ai-service && pip install -r requirements.txt && python main.py`
+
 ## Project Structure
 - `client/src/` - React frontend
 - `client/src/components/voice-command.tsx` - VoiceCommand component for STT
@@ -41,13 +56,24 @@ ORBIA is a multi-tenant SaaS platform for SMBs (PyMEs). It provides order manage
 - `client/src/pages/delivery-login.tsx` - Delivery agent login page
 - `client/src/pages/delivery-panel.tsx` - Delivery agent panel (orders, route, actions, history)
 - `server/` - Express backend (routes.ts, storage.ts, auth.ts, seed.ts, db.ts)
-- `server/replit_integrations/audio/client.ts` - Audio client for voice recording
-- `shared/schema.ts` - Drizzle schema (all tables including delivery tables + stt_logs)
+- `server/auth.ts` - JWT auth, middleware (tenantAuth, superAuth, enforceBranchScope, blockBranchScope)
+- `shared/schema.ts` - Drizzle schema (all tables including delivery, stock, stt_logs)
+- `ai-service/` - Python FastAPI microservice for STT + intent parsing
+
+## Environment Variables
+- `DATABASE_URL` - PostgreSQL connection string
+- `SESSION_SECRET` - JWT signing secret
+- `AI_SERVICE_URL` - URL of Python AI microservice (default: http://localhost:8001)
+- `SEED` - Set to "false" to disable database seeding (default: seeds run in dev)
 
 ## Running
 - `npm run dev` starts both frontend and backend
 - Frontend binds to port 5000
 - Database is PostgreSQL via DATABASE_URL
+- AI service runs separately: `cd ai-service && python main.py` (port 8001)
+
+## Background Jobs
+- **Tracking purge**: Runs every 5 minutes, revokes expired tracking links (sets trackingRevoked=true where trackingExpiresAt < now)
 
 ## Profile & Customization
 - **Tenant Settings**: Logo upload (POST /api/config/logo), business description, tracking style editor
@@ -57,8 +83,15 @@ ORBIA is a multi-tenant SaaS platform for SMBs (PyMEs). It provides order manage
 - **File Uploads**: multer, tenant logos and owner avatars in /uploads/profiles/ (5MB), delivery photos in /uploads/delivery/ (10MB)
 - **PDF Export**: Products export as PDF via pdfkit (replaced CSV)
 
+## MySQL Migration Notes
+- Avoid Postgres-specific features: no `text().array()`, use JSON columns instead
+- Replace `serial()` with `int().autoincrement()` for MySQL
+- Replace `timestamp().defaultNow()` with MySQL equivalent
+- Drizzle ORM supports both dialects via separate driver packages
+
 ## Recent Changes
 - 2026-02-07: Initial MVP built - schema, frontend (all pages), backend (all endpoints), JWT auth, seed data
 - 2026-02-07: Added STT voice commands (ESCALA plan), product management enhancements (edit/toggle/CSV/cost/stock), branch detail panel with filtered data, orders show branch badges
 - 2026-02-07: Comprehensive Delivery addon module - agents CRUD, separate auth, routes/stops/actions, photo proofs, tenant-configurable action states, owner panel addon toggle, delivery agent login/panel pages
 - 2026-02-07: Profile customization (logos, avatars, business descriptions), tracking page theming (4 layouts, colors, ToS), subscription management with grace period/warnings, PDF product export
+- 2026-02-07: Branch-level multi-tenancy with scope-based access control (TENANT/BRANCH scopes), per-branch stock management with audit trail, order auditing (createdByScope/createdByBranchId), Python FastAPI AI microservice (faster-whisper + regex intent), automated tracking link expiration purge, conditional database seeding

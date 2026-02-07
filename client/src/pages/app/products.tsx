@@ -25,9 +25,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Search, Package, Tag, Mic, Download, Pencil, Power } from "lucide-react";
+import { Plus, Search, Package, Tag, Mic, Download, Pencil, Power, Warehouse } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import type { Product, ProductCategory } from "@shared/schema";
+import type { Product, ProductCategory, Branch } from "@shared/schema";
 
 export default function ProductsPage() {
   const { hasFeature, loading: planLoading } = usePlan();
@@ -41,6 +41,12 @@ export default function ProductsPage() {
   const [editDialog, setEditDialog] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [showVoice, setShowVoice] = useState(false);
+  const [stockDialog, setStockDialog] = useState(false);
+  const [stockProduct, setStockProduct] = useState<Product | null>(null);
+  const [branches, setBranches] = useState<Branch[]>([]);
+  const [stockByBranch, setStockByBranch] = useState<any[]>([]);
+  const [stockMovements, setStockMovements] = useState<any[]>([]);
+  const [stockLoading, setStockLoading] = useState(false);
   const { toast } = useToast();
 
   const [newProduct, setNewProduct] = useState({
@@ -66,8 +72,15 @@ export default function ProductsPage() {
   const canAccess = hasFeature("products");
 
   useEffect(() => {
-    if (canAccess) fetchData();
-    else setLoading(false);
+    if (canAccess) {
+      fetchData();
+      apiRequest("GET", "/api/branches")
+        .then((r) => r.json())
+        .then((d) => setBranches(d.data || []))
+        .catch(() => {});
+    } else {
+      setLoading(false);
+    }
   }, [canAccess]);
 
   async function fetchData() {
@@ -181,6 +194,38 @@ export default function ProductsPage() {
     setShowVoice(false);
     setProductDialog(true);
     toast({ title: "Datos cargados por voz" });
+  }
+
+  async function openStockDialog(product: Product) {
+    setStockProduct(product);
+    setStockDialog(true);
+    setStockLoading(true);
+    try {
+      const res = await apiRequest("GET", `/api/products/${product.id}/stock`);
+      const data = await res.json();
+      setStockByBranch(data.data?.stockByBranch || []);
+      setStockMovements(data.data?.movements || []);
+    } catch {
+      setStockByBranch([]);
+      setStockMovements([]);
+    } finally {
+      setStockLoading(false);
+    }
+  }
+
+  async function updateBranchStock(branchId: number, newStock: number, reason: string) {
+    if (!stockProduct) return;
+    try {
+      await apiRequest("PATCH", `/api/products/${stockProduct.id}/stock`, {
+        branchId,
+        stock: newStock,
+        reason: reason || "Ajuste manual",
+      });
+      toast({ title: "Stock actualizado" });
+      openStockDialog(stockProduct);
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    }
   }
 
   async function createCategory(e: React.FormEvent) {
@@ -469,6 +514,16 @@ export default function ProductsPage() {
                   </div>
                 </div>
                 <div className="flex items-center justify-end gap-1 mt-3">
+                  {branches.length > 0 && (
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => openStockDialog(product)}
+                      data-testid={`button-stock-product-${product.id}`}
+                    >
+                      <Warehouse className="w-4 h-4" />
+                    </Button>
+                  )}
                   <Button
                     size="icon"
                     variant="ghost"
@@ -491,6 +546,118 @@ export default function ProductsPage() {
           ))}
         </div>
       )}
+
+      <Dialog open={stockDialog} onOpenChange={setStockDialog}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Warehouse className="w-5 h-5" />
+              Stock por Sucursal - {stockProduct?.name}
+            </DialogTitle>
+          </DialogHeader>
+          {stockLoading ? (
+            <div className="space-y-2">
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {branches.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  No hay sucursales configuradas
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {branches.map((branch) => {
+                    const branchStock = stockByBranch.find(
+                      (s: any) => s.branchId === branch.id
+                    );
+                    const currentStock = branchStock?.stock ?? 0;
+                    return (
+                      <div
+                        key={`${branch.id}-${currentStock}`}
+                        className="flex items-center justify-between gap-3 p-3 rounded-md bg-muted/50"
+                        data-testid={`stock-branch-${branch.id}`}
+                      >
+                        <div className="min-w-0">
+                          <p className="font-medium text-sm">{branch.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            Stock actual: {currentStock}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Input
+                            type="number"
+                            step="1"
+                            min="0"
+                            className="w-20"
+                            defaultValue={currentStock}
+                            data-testid={`input-stock-${branch.id}`}
+                            onBlur={(e) => {
+                              const val = parseInt(e.target.value);
+                              if (!isNaN(val) && val >= 0 && val !== currentStock) {
+                                updateBranchStock(branch.id, val, "Ajuste manual");
+                              }
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                const val = parseInt(
+                                  (e.target as HTMLInputElement).value
+                                );
+                                if (!isNaN(val) && val >= 0 && val !== currentStock) {
+                                  updateBranchStock(branch.id, val, "Ajuste manual");
+                                }
+                              }
+                            }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {stockMovements.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-sm font-medium text-muted-foreground">
+                    Movimientos recientes
+                  </p>
+                  <div className="max-h-40 overflow-y-auto space-y-1">
+                    {stockMovements.slice(0, 10).map((m: any, i: number) => (
+                      <div
+                        key={m.id || i}
+                        className="flex items-center justify-between text-xs p-2 rounded bg-muted/30"
+                        data-testid={`stock-movement-${m.id || i}`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={
+                              m.quantity > 0
+                                ? "text-green-600 dark:text-green-400 font-medium"
+                                : "text-red-600 dark:text-red-400 font-medium"
+                            }
+                          >
+                            {m.quantity > 0 ? "+" : ""}
+                            {m.quantity}
+                          </span>
+                          <span className="text-muted-foreground">
+                            {m.reason || "Sin razón"}
+                          </span>
+                        </div>
+                        <span className="text-muted-foreground">
+                          {m.createdAt
+                            ? new Date(m.createdAt).toLocaleDateString("es-AR")
+                            : ""}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={editDialog} onOpenChange={setEditDialog}>
         <DialogContent>

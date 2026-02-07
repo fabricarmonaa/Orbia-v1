@@ -435,13 +435,16 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/orders/:id/status", tenantAuth, async (req, res) => {
+  app.patch("/api/orders/:id/status", tenantAuth, enforceBranchScope, async (req, res) => {
     try {
       const tenantId = req.auth!.tenantId!;
       const orderId = parseInt(req.params.id);
       const { statusId, note } = req.body;
       const order = await storage.getOrderById(orderId, tenantId);
       if (!order) return res.status(404).json({ error: "Pedido no encontrado" });
+      if (req.auth!.scope === "BRANCH" && order.branchId !== req.auth!.branchId) {
+        return res.status(403).json({ error: "No tenés acceso a este pedido" });
+      }
       await storage.updateOrderStatus(orderId, tenantId, statusId);
       await storage.createOrderHistory({
         tenantId,
@@ -725,6 +728,10 @@ export async function registerRoutes(
       if (branchId === undefined || stock === undefined) {
         return res.status(400).json({ error: "branchId y stock son obligatorios" });
       }
+      const stockNum = parseInt(String(stock));
+      if (isNaN(stockNum) || stockNum < 0) {
+        return res.status(400).json({ error: "Stock debe ser un número entero no negativo" });
+      }
       const product = await storage.getProductById(productId, tenantId);
       if (!product) return res.status(404).json({ error: "Producto no encontrado" });
 
@@ -732,13 +739,13 @@ export async function registerRoutes(
       const existing = await storage.getProductStockByBranch(productId, tenantId);
       const prev = existing.find(s => s.branchId === targetBranchId);
       const prevStock = prev?.stock || 0;
-      const delta = stock - prevStock;
+      const delta = stockNum - prevStock;
 
       await storage.upsertProductStockByBranch({
         tenantId,
         productId,
         branchId: targetBranchId,
-        stock,
+        stock: stockNum,
       });
 
       if (delta !== 0) {

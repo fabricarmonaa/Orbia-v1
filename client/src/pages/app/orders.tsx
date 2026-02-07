@@ -472,6 +472,11 @@ export default function OrdersPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-3 flex-wrap">
+                      {(order as any).createdByScope === "BRANCH" && (
+                        <Badge variant="secondary" data-testid={`badge-scope-${order.id}`}>
+                          Sucursal
+                        </Badge>
+                      )}
                       {getBranchName(order.branchId) && (
                         <Badge variant="outline" data-testid={`badge-branch-${order.id}`}>
                           {getBranchName(order.branchId)}
@@ -551,6 +556,21 @@ export default function OrdersPage() {
                     <div>
                       <Label className="text-muted-foreground">Descripción</Label>
                       <p className="text-sm mt-1">{selectedOrder.description}</p>
+                    </div>
+                  )}
+                  {((selectedOrder as any).createdByScope || getBranchName((selectedOrder as any).createdByBranchId)) && (
+                    <div className="flex items-center justify-between">
+                      <Label className="text-muted-foreground">Creado desde</Label>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="secondary" data-testid="badge-detail-scope">
+                          {(selectedOrder as any).createdByScope === "BRANCH" ? "Sucursal" : "Central"}
+                        </Badge>
+                        {getBranchName((selectedOrder as any).createdByBranchId) && (
+                          <span className="text-sm text-muted-foreground">
+                            {getBranchName((selectedOrder as any).createdByBranchId)}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   )}
                   {selectedOrder.requiresDelivery && (
