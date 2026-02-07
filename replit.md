@@ -8,7 +8,7 @@ ORBIA is a multi-tenant SaaS platform for SMBs (PyMEs). It provides order manage
 - **Backend**: Express.js + TypeScript
 - **Database**: PostgreSQL with Drizzle ORM
 - **Auth**: JWT-based (separate flows: Super Admin vs Tenant Admin vs Delivery Agent vs Public tracking)
-- **AI Service**: Python FastAPI microservice (ai-service/) for STT, using faster-whisper + regex-based intent parsing
+- **AI Service**: Python FastAPI microservice (ai-service/) for STT, using faster-whisper with ffmpeg audio conversion
 
 ## Access Flows
 1. **Super Admin** (`/owner/login`): admin@orbia.app / admin123
@@ -22,8 +22,8 @@ ORBIA is a multi-tenant SaaS platform for SMBs (PyMEs). It provides order manage
 - **Products**: CRUD + categories + cost/stock tracking + edit modal + activate/deactivate toggle + PDF export + stock by branch dialog
 - **Branches**: Multi-branch support per tenant + branch detail panel with filtered orders/cash
 - **Plans**: Feature flags + limits (ECONOMICO / PROFESIONAL / ESCALA)
-- **STT Voice Commands** (ESCALA plan only): Proxied to Python AI microservice for transcription + regex intent extraction
-- **Delivery** (addon, per-tenant): Agent management + route building + action states config + photo proofs + delivery tracking
+- **STT Voice Commands** (ESCALA plan only): Proxied to Python AI microservice for transcription, with POST /api/ai/apply for confirmed intents
+- **Delivery** (addon, per-tenant): Agent management + route building + action states config + photo proofs + delivery tracking + Google Maps redirect links
 - **Stock Management**: Per-branch stock tracking with audit trail (productStockByBranch + stockMovements tables)
 
 ## Scope-Based Access Control
@@ -33,7 +33,7 @@ ORBIA is a multi-tenant SaaS platform for SMBs (PyMEs). It provides order manage
 - **Order auditing**: Each order records `createdByScope` and `createdByBranchId` from the JWT of the creator
 
 ## Delivery Module
-- **Addon activation**: Super admin enables per tenant via toggle in Owner panel (tenant_addons table)
+- **Addon activation**: Super admin enables per tenant via PATCH /api/super/tenants/:tenantId/addons/:addonKey (tenant_addons table)
 - **Delivery agents**: Separate auth flow (tenantCode + DNI + PIN), JWT with scope=DELIVERY
 - **Action states**: Tenant-configurable (ENTREGADO/NO_ENCONTRADO/RECHAZADO etc) with photo/comment requirements
 - **Routes**: Agent selects available orders → creates route → marks each stop with action + photo → completes route
@@ -44,21 +44,26 @@ ORBIA is a multi-tenant SaaS platform for SMBs (PyMEs). It provides order manage
 ## AI Service (ai-service/)
 - **Architecture**: Separate Python FastAPI microservice, configurable via `AI_SERVICE_URL` env var (default: http://localhost:8001)
 - **STT**: faster-whisper (base model, CPU, int8) for speech-to-text
-- **Intent parsing**: Regex-based extraction for orders/cash/products contexts (no LLM dependency)
+- **Audio conversion**: ffmpeg detects format and converts webm/ogg/mp3/m4a → WAV before transcription
+- **Intent apply**: POST /api/ai/apply endpoint creates orders/cash/products directly from confirmed voice intents
 - **Graceful degradation**: If AI service is unavailable, Express returns 503 with `AI_SERVICE_UNAVAILABLE` code
 - **Run**: `cd ai-service && pip install -r requirements.txt && python main.py`
 
-## Project Structure
+## Project Structure (Modular)
 - `client/src/` - React frontend
-- `client/src/components/voice-command.tsx` - VoiceCommand component for STT
+- `client/src/components/voice-command.tsx` - VoiceCommand component for STT with editable intent preview
+- `client/src/pages/app/` - Tenant app pages (orders, products, cash, branches, delivery, settings, dashboard)
 - `client/src/pages/app/branch-detail.tsx` - Branch detail panel with filtered data
 - `client/src/pages/app/delivery.tsx` - Tenant delivery management (agents, config, routes, orders)
 - `client/src/pages/delivery-login.tsx` - Delivery agent login page
 - `client/src/pages/delivery-panel.tsx` - Delivery agent panel (orders, route, actions, history)
-- `server/` - Express backend (routes.ts, storage.ts, auth.ts, seed.ts, db.ts)
-- `server/auth.ts` - JWT auth, middleware (tenantAuth, superAuth, enforceBranchScope, blockBranchScope)
-- `shared/schema.ts` - Drizzle schema (all tables including delivery, stock, stt_logs)
-- `ai-service/` - Python FastAPI microservice for STT + intent parsing
+- `shared/schema.ts` - Barrel re-export from shared/schema/ directory
+- `shared/schema/` - Domain-based schema modules (core.ts, orders.ts, products.ts, cash.ts, delivery.ts, stock.ts, stt.ts, config.ts, tracking.ts)
+- `server/storage/` - Domain-based storage modules (interface.ts, users.ts, orders.ts, products.ts, cash.ts, delivery.ts, stock.ts, tracking.ts, config.ts, stt.ts, super.ts, tenants.ts) + index.ts barrel
+- `server/routes/` - Domain-based route modules (auth.ts, super.ts, tenant.ts, orders.ts, branches.ts, cash.ts, products.ts, stt.ts, tracking.ts, delivery.ts, uploads.ts) + index.ts barrel
+- `server/auth.ts` - JWT auth, middleware (tenantAuth, superAuth, enforceBranchScope, blockBranchScope, deliveryAuth)
+- `server/seed.ts` - Conditional database seeding (SEED env var, checks existing data)
+- `ai-service/` - Python FastAPI microservice (main.py, transcriber.py, parsers/)
 
 ## Environment Variables
 - `DATABASE_URL` - PostgreSQL connection string
@@ -83,6 +88,11 @@ ORBIA is a multi-tenant SaaS platform for SMBs (PyMEs). It provides order manage
 - **File Uploads**: multer, tenant logos and owner avatars in /uploads/profiles/ (5MB), delivery photos in /uploads/delivery/ (10MB)
 - **PDF Export**: Products export as PDF via pdfkit (replaced CSV)
 
+## DB Constraints
+- `tenant_addons`: unique on (tenantId, addonKey)
+- `delivery_agents`: unique on (tenantId, dni)
+- `product_stock_by_branch`: unique on (tenantId, productId, branchId)
+
 ## MySQL Migration Notes
 - Avoid Postgres-specific features: no `text().array()`, use JSON columns instead
 - Replace `serial()` with `int().autoincrement()` for MySQL
@@ -95,3 +105,4 @@ ORBIA is a multi-tenant SaaS platform for SMBs (PyMEs). It provides order manage
 - 2026-02-07: Comprehensive Delivery addon module - agents CRUD, separate auth, routes/stops/actions, photo proofs, tenant-configurable action states, owner panel addon toggle, delivery agent login/panel pages
 - 2026-02-07: Profile customization (logos, avatars, business descriptions), tracking page theming (4 layouts, colors, ToS), subscription management with grace period/warnings, PDF product export
 - 2026-02-07: Branch-level multi-tenancy with scope-based access control (TENANT/BRANCH scopes), per-branch stock management with audit trail, order auditing (createdByScope/createdByBranchId), Python FastAPI AI microservice (faster-whisper + regex intent), automated tracking link expiration purge, conditional database seeding
+- 2026-02-07: Code restructured into 49 domain-based modules (shared/schema/, server/storage/, server/routes/), STT enhanced with ffmpeg audio conversion and POST /api/ai/apply endpoint, VoiceCommand component with editable preview, PATCH addon toggle endpoint, DB unique constraints added
