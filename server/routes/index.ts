@@ -10,6 +10,7 @@ import { registerProductRoutes } from "./products";
 import { registerSttRoutes } from "./stt";
 import { registerTrackingRoutes } from "./tracking";
 import { registerDeliveryRoutes } from "./delivery";
+import { registerBranchUserRoutes } from "./branch-users";
 import { registerStaticUploads } from "./uploads";
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
@@ -24,5 +25,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   registerSttRoutes(app);
   registerTrackingRoutes(app);
   registerDeliveryRoutes(app);
+  registerBranchUserRoutes(app);
   return httpServer;
 }

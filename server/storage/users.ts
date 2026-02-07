@@ -29,4 +29,20 @@ export const userStorage = {
     const [user] = await db.insert(users).values(data).returning();
     return user;
   },
+  async getBranchUsers(tenantId: number, branchId?: number) {
+    const conditions = [
+      eq(users.tenantId, tenantId),
+      eq(users.scope, "BRANCH"),
+    ];
+    if (branchId) conditions.push(eq(users.branchId, branchId));
+    return db.select().from(users).where(and(...conditions));
+  },
+  async updateUser(id: number, tenantId: number, data: Partial<InsertUser>) {
+    const [user] = await db
+      .update(users)
+      .set(data)
+      .where(and(eq(users.id, id), eq(users.tenantId, tenantId)))
+      .returning();
+    return user;
+  },
 };

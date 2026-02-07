@@ -30,7 +30,12 @@ export function registerSttRoutes(app: Express) {
         }
         sttResult = await aiRes.json() as { transcription: string; intent: any };
       } catch (fetchErr: any) {
-        if (fetchErr.name === "AbortError" || fetchErr.code === "ECONNREFUSED") {
+        if (
+          fetchErr.name === "AbortError" ||
+          fetchErr.code === "ECONNREFUSED" ||
+          fetchErr?.cause?.code === "ECONNREFUSED" ||
+          fetchErr.message?.includes("fetch failed")
+        ) {
           return res.status(503).json({
             error: "Servicio de IA no disponible. Intentá de nuevo más tarde.",
             code: "AI_SERVICE_UNAVAILABLE",
@@ -39,7 +44,7 @@ export function registerSttRoutes(app: Express) {
         throw fetchErr;
       }
 
-      await storage.createSttLog({
+      const log = await storage.createSttLog({
         tenantId: req.auth!.tenantId!,
         userId: req.auth!.userId,
         context,
@@ -50,6 +55,7 @@ export function registerSttRoutes(app: Express) {
 
       res.json({
         data: {
+          logId: log.id,
           transcription: sttResult.transcription,
           intent: sttResult.intent,
           context,
@@ -63,14 +69,33 @@ export function registerSttRoutes(app: Express) {
 
   app.post("/api/ai/apply", tenantAuth, requireFeature("stt"), enforceBranchScope, async (req, res) => {
     try {
-      const { context, intent } = req.body;
+      const { context, intent, logId } = req.body;
       if (!context || !intent) {
         return res.status(400).json({ error: "Contexto e intent requeridos" });
       }
       const tenantId = req.auth!.tenantId!;
       const branchId = req.auth!.scope === "BRANCH" ? req.auth!.branchId : (intent.branchId || null);
 
+      const missingFields: string[] = [];
+      if (context === "products" && intent.action === "create") {
+        if (!intent.name) missingFields.push("name");
+        if (!intent.price && intent.price !== 0) missingFields.push("price");
+      } else if (context === "cash" && (intent.action === "income" || intent.action === "expense")) {
+        if (!intent.amount && intent.amount !== 0) missingFields.push("amount");
+      } else if (context === "orders" && intent.action === "create") {
+        if (!intent.customerName && !intent.description) missingFields.push("customerName o description");
+      }
+
+      if (missingFields.length > 0) {
+        return res.status(400).json({
+          error: "MISSING_FIELDS",
+          missing_fields: missingFields,
+          message: `Faltan campos requeridos: ${missingFields.join(", ")}`,
+        });
+      }
+
       let result: any;
+      let entityType: string = "";
 
       if (context === "orders" && intent.action === "create") {
         const orderNumber = await storage.getNextOrderNumber(tenantId);
@@ -94,6 +119,7 @@ export function registerSttRoutes(app: Express) {
           deliveryAddressNotes: null,
           deliveryStatus: null,
         });
+        entityType = "order";
       } else if (context === "cash" && intent.action === "income") {
         result = await storage.createCashMovement({
           tenantId,
@@ -106,6 +132,7 @@ export function registerSttRoutes(app: Express) {
           branchId,
           createdById: req.auth!.userId,
         });
+        entityType = "cash_movement";
       } else if (context === "cash" && intent.action === "expense") {
         result = await storage.createCashMovement({
           tenantId,
@@ -118,20 +145,41 @@ export function registerSttRoutes(app: Express) {
           branchId,
           createdById: req.auth!.userId,
         });
+        entityType = "cash_movement";
       } else if (context === "products" && intent.action === "create") {
         result = await storage.createProduct({
           tenantId,
-          name: intent.name || "Producto sin nombre",
+          name: intent.name,
           description: intent.description || null,
-          price: String(intent.price || 0),
+          price: String(intent.price),
           sku: intent.sku || null,
           categoryId: intent.categoryId || null,
         });
+        entityType = "product";
       } else {
         return res.status(400).json({ error: "Acción no soportada para este contexto" });
       }
 
-      res.status(201).json({ data: result });
+      if (logId) {
+        try {
+          await storage.updateSttLogConfirmed(logId, tenantId, {
+            resultEntityType: entityType,
+            resultEntityId: result.id,
+          });
+        } catch (_e) {}
+      } else {
+        const lastLog = await storage.getLastUnconfirmedLog(tenantId, req.auth!.userId, context);
+        if (lastLog) {
+          try {
+            await storage.updateSttLogConfirmed(lastLog.id, tenantId, {
+              resultEntityType: entityType,
+              resultEntityId: result.id,
+            });
+          } catch (_e) {}
+        }
+      }
+
+      res.status(201).json({ data: result, entityType });
     } catch (err: any) {
       console.error("Apply intent error:", err);
       res.status(500).json({ error: "Error aplicando intent: " + (err.message || "desconocido") });

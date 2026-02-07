@@ -10,11 +10,18 @@ export const cashStorage = {
       .where(eq(cashSessions.tenantId, tenantId))
       .orderBy(desc(cashSessions.openedAt));
   },
-  async getOpenSession(tenantId: number) {
+  async getOpenSession(tenantId: number, branchId?: number | null) {
+    const conditions = [
+      eq(cashSessions.tenantId, tenantId),
+      eq(cashSessions.status, "open"),
+    ];
+    if (branchId) {
+      conditions.push(eq(cashSessions.branchId, branchId));
+    }
     const [session] = await db
       .select()
       .from(cashSessions)
-      .where(and(eq(cashSessions.tenantId, tenantId), eq(cashSessions.status, "open")));
+      .where(and(...conditions));
     return session;
   },
   async createCashSession(data: InsertCashSession) {
@@ -25,7 +32,7 @@ export const cashStorage = {
     const [session] = await db
       .select()
       .from(cashSessions)
-      .where(and(eq(cashSessions.tenantId, tenantId), eq(cashSessions.status, "open")));
+      .where(and(eq(cashSessions.id, id), eq(cashSessions.tenantId, tenantId), eq(cashSessions.status, "open")));
     if (!session) throw new Error("No hay caja abierta");
     const diff = parseFloat(closingAmount) - parseFloat(session.openingAmount);
     await db

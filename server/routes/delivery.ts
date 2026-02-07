@@ -247,11 +247,17 @@ export function registerDeliveryRoutes(app: Express) {
       if (existingActive) {
         return res.status(409).json({ error: "Ya tenés una ruta activa. Completala antes de crear otra." });
       }
+      const config = await storage.getConfig(req.auth!.tenantId!);
+      const originAddress = req.body.originAddress || config?.businessName || "Origen";
+
       const route = await storage.createDeliveryRoute({
         tenantId: req.auth!.tenantId!,
         agentId: req.auth!.deliveryAgentId!,
         status: "active",
+        originAddress,
       });
+
+      const orderAddresses: string[] = [];
       for (let i = 0; i < orderIds.length; i++) {
         await storage.createRouteStop({
           routeId: route.id,
@@ -259,9 +265,27 @@ export function registerDeliveryRoutes(app: Express) {
           stopOrder: i + 1,
         });
         await storage.assignDeliveryAgent(orderIds[i], req.auth!.tenantId!, req.auth!.deliveryAgentId!);
+        const order = await storage.getOrderById(orderIds[i], req.auth!.tenantId!);
+        if (order?.deliveryAddress) {
+          const addr = [order.deliveryAddress, order.deliveryCity].filter(Boolean).join(", ");
+          orderAddresses.push(addr);
+        }
       }
+
+      let directionsUrl: string | null = null;
+      if (orderAddresses.length > 0) {
+        const origin = encodeURIComponent(originAddress);
+        const destination = encodeURIComponent(orderAddresses[orderAddresses.length - 1]);
+        const waypoints = orderAddresses.slice(0, -1).map(a => encodeURIComponent(a)).join("|");
+        directionsUrl = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}`;
+        if (waypoints) {
+          directionsUrl += `&waypoints=${waypoints}`;
+        }
+        await storage.updateDeliveryRouteDirections(route.id, req.auth!.tenantId!, directionsUrl);
+      }
+
       const stops = await storage.getRouteStops(route.id);
-      res.status(201).json({ data: { ...route, stops } });
+      res.status(201).json({ data: { ...route, directionsUrl, stops } });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

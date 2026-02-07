@@ -32,6 +32,8 @@ export class DatabaseStorage implements IStorage {
   getUserByEmail = userStorage.getUserByEmail;
   getSuperAdminByEmail = userStorage.getSuperAdminByEmail;
   createUser = userStorage.createUser;
+  getBranchUsers = userStorage.getBranchUsers;
+  updateUser = userStorage.updateUser;
 
   getConfig = configStorage.getConfig;
   upsertConfig = configStorage.upsertConfig;
@@ -84,6 +86,8 @@ export class DatabaseStorage implements IStorage {
 
   createSttLog = sttStorage.createSttLog;
   getSttLogs = sttStorage.getSttLogs;
+  updateSttLogConfirmed = sttStorage.updateSttLogConfirmed;
+  getLastUnconfirmedLog = sttStorage.getLastUnconfirmedLog;
 
   getDeliveryAgents = deliveryStorage.getDeliveryAgents;
   getDeliveryAgentById = deliveryStorage.getDeliveryAgentById;
@@ -106,6 +110,7 @@ export class DatabaseStorage implements IStorage {
   updateRouteStopAction = deliveryStorage.updateRouteStopAction;
   getDeliveryProofsByOrder = deliveryStorage.getDeliveryProofsByOrder;
   createDeliveryProof = deliveryStorage.createDeliveryProof;
+  updateDeliveryRouteDirections = deliveryStorage.updateDeliveryRouteDirections;
   getDeliveryOrders = deliveryStorage.getDeliveryOrders;
   updateOrderDeliveryStatus = deliveryStorage.updateOrderDeliveryStatus;
   assignDeliveryAgent = deliveryStorage.assignDeliveryAgent;

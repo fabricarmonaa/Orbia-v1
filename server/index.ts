@@ -61,7 +61,7 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  const shouldSeed = process.env.SEED !== "false";
+  const shouldSeed = process.env.SEED === "true";
   if (shouldSeed) {
     const { seedDatabase, seedDeliveryData } = await import("./seed");
     await seedDatabase();

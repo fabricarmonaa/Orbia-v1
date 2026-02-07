@@ -102,6 +102,8 @@ export const deliveryRoutes = pgTable(
       .references(() => deliveryAgents.id)
       .notNull(),
     status: varchar("status", { length: 30 }).notNull().default("active"),
+    originAddress: text("origin_address"),
+    directionsUrl: text("directions_url"),
     startedAt: timestamp("started_at").defaultNow().notNull(),
     completedAt: timestamp("completed_at"),
   },

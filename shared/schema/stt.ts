@@ -26,6 +26,9 @@ export const sttLogs = pgTable(
     transcription: text("transcription"),
     intentJson: jsonb("intent_json"),
     confirmed: boolean("confirmed").default(false),
+    resultEntityType: varchar("result_entity_type", { length: 50 }),
+    resultEntityId: integer("result_entity_id"),
+    confirmedAt: timestamp("confirmed_at"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [index("idx_stt_logs_tenant").on(table.tenantId)]

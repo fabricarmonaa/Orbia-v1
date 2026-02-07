@@ -39,6 +39,8 @@ export interface IStorage {
   getUserByEmail(email: string, tenantId?: number | null): Promise<User | undefined>;
   getSuperAdminByEmail(email: string): Promise<User | undefined>;
   createUser(data: InsertUser): Promise<User>;
+  getBranchUsers(tenantId: number, branchId?: number): Promise<User[]>;
+  updateUser(id: number, tenantId: number, data: Partial<InsertUser>): Promise<User>;
 
   getConfig(tenantId: number): Promise<TenantConfig | undefined>;
   upsertConfig(data: InsertTenantConfig): Promise<TenantConfig>;
@@ -67,7 +69,7 @@ export interface IStorage {
   createOrderComment(data: InsertOrderComment): Promise<OrderComment>;
 
   getCashSessions(tenantId: number): Promise<CashSession[]>;
-  getOpenSession(tenantId: number): Promise<CashSession | undefined>;
+  getOpenSession(tenantId: number, branchId?: number | null): Promise<CashSession | undefined>;
   createCashSession(data: InsertCashSession): Promise<CashSession>;
   closeCashSession(id: number, tenantId: number, closingAmount: string): Promise<void>;
 
@@ -90,6 +92,8 @@ export interface IStorage {
 
   createSttLog(data: InsertSttLog): Promise<SttLog>;
   getSttLogs(tenantId: number): Promise<SttLog[]>;
+  updateSttLogConfirmed(logId: number, tenantId: number, updates: { resultEntityType: string; resultEntityId: number }): Promise<void>;
+  getLastUnconfirmedLog(tenantId: number, userId: number, context: string): Promise<SttLog | undefined>;
 
   getOrdersByBranch(tenantId: number, branchId: number): Promise<Order[]>;
   getCashSessionsByBranch(tenantId: number, branchId: number): Promise<CashSession[]>;
@@ -126,6 +130,7 @@ export interface IStorage {
   getDeliveryProofsByOrder(orderId: number): Promise<DeliveryProof[]>;
   createDeliveryProof(data: InsertDeliveryProof): Promise<DeliveryProof>;
 
+  updateDeliveryRouteDirections(id: number, tenantId: number, directionsUrl: string): Promise<void>;
   getDeliveryOrders(tenantId: number): Promise<Order[]>;
   updateOrderDeliveryStatus(id: number, tenantId: number, status: string): Promise<void>;
   assignDeliveryAgent(orderId: number, tenantId: number, agentId: number): Promise<void>;

@@ -22,9 +22,9 @@ export function registerCashRoutes(app: Express) {
     try {
       const tenantId = req.auth!.tenantId!;
       const branchId = req.auth!.scope === "BRANCH" ? req.auth!.branchId : (req.body.branchId || null);
-      const existing = await storage.getOpenSession(tenantId);
+      const existing = await storage.getOpenSession(tenantId, branchId);
       if (existing) {
-        return res.status(400).json({ error: "Ya hay una caja abierta" });
+        return res.status(400).json({ error: "Ya hay una caja abierta para esta sucursal" });
       }
       const data = await storage.createCashSession({
         tenantId,
@@ -47,6 +47,17 @@ export function registerCashRoutes(app: Express) {
         String(req.body.closingAmount || 0)
       );
       res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/cash/session", tenantAuth, enforceBranchScope, async (req, res) => {
+    try {
+      const tenantId = req.auth!.tenantId!;
+      const branchId = req.auth!.scope === "BRANCH" ? req.auth!.branchId : (req.query.branchId ? parseInt(req.query.branchId as string) : null);
+      const session = await storage.getOpenSession(tenantId, branchId);
+      res.json({ data: session || null });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

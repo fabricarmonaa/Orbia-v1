@@ -149,6 +149,12 @@ export const deliveryStorage = {
       .set({ deliveryStatus: status, updatedAt: new Date() })
       .where(and(eq(orders.id, id), eq(orders.tenantId, tenantId)));
   },
+  async updateDeliveryRouteDirections(id: number, tenantId: number, directionsUrl: string) {
+    await db
+      .update(deliveryRoutes)
+      .set({ directionsUrl })
+      .where(and(eq(deliveryRoutes.id, id), eq(deliveryRoutes.tenantId, tenantId)));
+  },
   async assignDeliveryAgent(orderId: number, tenantId: number, agentId: number) {
     await db
       .update(orders)
