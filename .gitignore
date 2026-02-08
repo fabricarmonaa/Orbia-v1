@@ -1,0 +1,26 @@
+# Node
+node_modules/
+dist/
+build/
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.env.python
+
+# OS
+.DS_Store
+
+# Railway / Replit
+.replit
+.replit.nix
