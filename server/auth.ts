@@ -127,7 +127,20 @@ export function tenantAuth(req: Request, res: Response, next: NextFunction) {
       return res.status(403).json({ error: "Acceso denegado" });
     }
     req.auth = payload;
-    next();
+    storage.getTenantById(payload.tenantId)
+      .then((tenant) => {
+        if (!tenant || tenant.deletedAt) {
+          return res.status(403).json({ error: "Negocio eliminado", code: "TENANT_DELETED" });
+        }
+        if (tenant.isBlocked) {
+          return res.status(403).json({ error: "Negocio bloqueado", code: "TENANT_BLOCKED" });
+        }
+        if (!tenant.isActive) {
+          return res.status(403).json({ error: "Cuenta bloqueada por falta de pago. Contacte al administrador.", code: "ACCOUNT_BLOCKED" });
+        }
+        next();
+      })
+      .catch(() => res.status(500).json({ error: "Error verificando negocio" }));
   } catch {
     return res.status(401).json({ error: "Token inválido" });
   }

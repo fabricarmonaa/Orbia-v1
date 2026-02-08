@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,13 +9,15 @@ import { Separator } from "@/components/ui/separator";
 import { ArrowUp, ArrowDown, RefreshCcw, Download, Save } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
-  getPriceListPdfSettings,
-  updatePriceListPdfSettings,
-  resetPriceListPdfSettings,
-  getPriceListPreviewUrl,
-  getPriceListDownloadUrl,
-  type PriceListPdfSettings,
+  getPdfSettings,
+  updatePdfSettings,
+  resetPdfSettings,
+  fetchPdfPreview,
+  getPdfDownloadUrl,
+  type PdfSettings,
   type PdfColumnKey,
+  type PdfDocumentType,
+  type InvoiceColumnKey,
 } from "@/lib/pdfs";
 
 const columnLabels: Record<PdfColumnKey, string> = {
@@ -31,13 +33,25 @@ const templateOptions = [
   { value: "CLASSIC", label: "Clásico" },
   { value: "MODERN", label: "Moderno" },
   { value: "MINIMAL", label: "Minimal" },
+  { value: "INVOICE_B", label: "Factura B" },
 ];
 
+const invoiceColumnLabels: Record<InvoiceColumnKey, string> = {
+  code: "Código",
+  quantity: "Cantidad",
+  product: "Producto",
+  price: "Precio",
+  discount: "Bonif",
+  total: "Importe",
+};
+
 export function PriceListPdfSettings() {
-  const [settings, setSettings] = useState<PriceListPdfSettings | null>(null);
+  const [settings, setSettings] = useState<PdfSettings | null>(null);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [previewKey, setPreviewKey] = useState(Date.now());
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -46,7 +60,7 @@ export function PriceListPdfSettings() {
 
   async function fetchSettings() {
     try {
-      const data = await getPriceListPdfSettings();
+      const data = await getPdfSettings();
       setSettings(data);
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -55,22 +69,44 @@ export function PriceListPdfSettings() {
     }
   }
 
-  const previewUrl = useMemo(() => getPriceListPreviewUrl(true) + `&k=${previewKey}`, [previewKey]);
-
-  function updateColumnOrder(index: number, direction: "up" | "down") {
+  useEffect(() => {
     if (!settings) return;
-    const next = [...settings.columns];
+    let active = true;
+    setLoadingPreview(true);
+    fetchPdfPreview(settings.documentType as PdfDocumentType)
+      .then((blob) => {
+        if (!active) return;
+        const url = URL.createObjectURL(blob);
+        setPreviewUrl((prev) => {
+          if (prev) URL.revokeObjectURL(prev);
+          return url;
+        });
+      })
+      .catch((err: any) => {
+        toast({ title: "Error", description: err.message, variant: "destructive" });
+      })
+      .finally(() => {
+        if (active) setLoadingPreview(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [settings?.documentType, previewKey]);
+
+  function updateColumnOrder(listKey: "columns" | "invoiceColumns", index: number, direction: "up" | "down") {
+    if (!settings) return;
+    const next = [...settings[listKey]];
     const target = direction === "up" ? index - 1 : index + 1;
     if (target < 0 || target >= next.length) return;
     [next[index], next[target]] = [next[target], next[index]];
-    setSettings({ ...settings, columns: next });
+    setSettings({ ...settings, [listKey]: next });
   }
 
   async function saveSettings() {
     if (!settings) return;
     setSaving(true);
     try {
-      const data = await updatePriceListPdfSettings(settings);
+      const data = await updatePdfSettings(settings);
       setSettings(data);
       toast({ title: "PDF guardado" });
       setPreviewKey(Date.now());
@@ -85,7 +121,7 @@ export function PriceListPdfSettings() {
     if (!confirm("¿Restaurar configuración por defecto?")) return;
     setSaving(true);
     try {
-      const data = await resetPriceListPdfSettings();
+      const data = await resetPdfSettings();
       setSettings(data);
       toast({ title: "Restaurado a valores por defecto" });
       setPreviewKey(Date.now());
@@ -100,12 +136,14 @@ export function PriceListPdfSettings() {
     return null;
   }
 
+  const isInvoice = settings.documentType === "INVOICE_B";
+
   return (
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="font-semibold">PDF Lista de precios</h3>
+            <h3 className="font-semibold">PDFs del negocio</h3>
             <p className="text-sm text-muted-foreground">Configura diseño, columnas y preview</p>
           </div>
           <div className="flex items-center gap-2">
@@ -114,7 +152,7 @@ export function PriceListPdfSettings() {
               Actualizar preview
             </Button>
             <Button variant="outline" size="sm" asChild>
-              <a href={getPriceListDownloadUrl()} target="_blank" rel="noreferrer">
+              <a href={getPdfDownloadUrl(settings.documentType)} target="_blank" rel="noreferrer">
                 <Download className="w-4 h-4 mr-2" />
                 Descargar PDF
               </a>
@@ -125,7 +163,22 @@ export function PriceListPdfSettings() {
       <CardContent className="space-y-6">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="space-y-4 lg:col-span-2">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+              <div className="space-y-2">
+                <Label>Tipo de documento</Label>
+                <Select
+                  value={settings.documentType}
+                  onValueChange={(value) => setSettings({ ...settings, documentType: value as PdfDocumentType })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="PRICE_LIST">Lista de precios</SelectItem>
+                    <SelectItem value="INVOICE_B">Factura B</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="space-y-2">
                 <Label>Template</Label>
                 <Select
@@ -200,14 +253,73 @@ export function PriceListPdfSettings() {
               </div>
             </div>
 
+            {isInvoice && (
+              <>
+                <Separator />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Título del documento</Label>
+                    <Input
+                      value={settings.documentTitle || ""}
+                      onChange={(e) => setSettings({ ...settings, documentTitle: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Razón social</Label>
+                    <Input
+                      value={settings.fiscalName || ""}
+                      onChange={(e) => setSettings({ ...settings, fiscalName: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>CUIT</Label>
+                    <Input
+                      value={settings.fiscalCuit || ""}
+                      onChange={(e) => setSettings({ ...settings, fiscalCuit: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>IIBB</Label>
+                    <Input
+                      value={settings.fiscalIibb || ""}
+                      onChange={(e) => setSettings({ ...settings, fiscalIibb: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label>Domicilio</Label>
+                    <Input
+                      value={settings.fiscalAddress || ""}
+                      onChange={(e) => setSettings({ ...settings, fiscalAddress: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Ciudad</Label>
+                    <Input
+                      value={settings.fiscalCity || ""}
+                      onChange={(e) => setSettings({ ...settings, fiscalCity: e.target.value })}
+                    />
+                  </div>
+                  <div className="flex items-center gap-3 sm:col-span-2">
+                    <Switch
+                      checked={settings.showFooterTotals ?? true}
+                      onCheckedChange={(checked) => setSettings({ ...settings, showFooterTotals: checked })}
+                    />
+                    <span className="text-sm text-muted-foreground">Mostrar total al pie</span>
+                  </div>
+                </div>
+              </>
+            )}
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Etiqueta precio</Label>
-                <Input
-                  value={settings.priceColumnLabel}
-                  onChange={(e) => setSettings({ ...settings, priceColumnLabel: e.target.value })}
-                />
-              </div>
+              {!isInvoice && (
+                <div className="space-y-2">
+                  <Label>Etiqueta precio</Label>
+                  <Input
+                    value={settings.priceColumnLabel}
+                    onChange={(e) => setSettings({ ...settings, priceColumnLabel: e.target.value })}
+                  />
+                </div>
+              )}
               <div className="space-y-2">
                 <Label>Símbolo moneda</Label>
                 <Input
@@ -227,27 +339,31 @@ export function PriceListPdfSettings() {
                 />
                 <span className="text-sm text-muted-foreground">Mostrar logo</span>
               </div>
-              <div className="flex items-center gap-3">
-                <Switch
-                  checked={settings.showDescription}
-                  onCheckedChange={(checked) => setSettings({ ...settings, showDescription: checked })}
-                />
-                <span className="text-sm text-muted-foreground">Mostrar descripción</span>
-              </div>
-              <div className="flex items-center gap-3">
-                <Switch
-                  checked={settings.showSku}
-                  onCheckedChange={(checked) => setSettings({ ...settings, showSku: checked })}
-                />
-                <span className="text-sm text-muted-foreground">Mostrar SKU</span>
-              </div>
-              <div className="flex items-center gap-3">
-                <Switch
-                  checked={settings.showBranchStock}
-                  onCheckedChange={(checked) => setSettings({ ...settings, showBranchStock: checked })}
-                />
-                <span className="text-sm text-muted-foreground">Stock por sucursal</span>
-              </div>
+              {!isInvoice && (
+                <>
+                  <div className="flex items-center gap-3">
+                    <Switch
+                      checked={settings.showDescription}
+                      onCheckedChange={(checked) => setSettings({ ...settings, showDescription: checked })}
+                    />
+                    <span className="text-sm text-muted-foreground">Mostrar descripción</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Switch
+                      checked={settings.showSku}
+                      onCheckedChange={(checked) => setSettings({ ...settings, showSku: checked })}
+                    />
+                    <span className="text-sm text-muted-foreground">Mostrar SKU</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Switch
+                      checked={settings.showBranchStock}
+                      onCheckedChange={(checked) => setSettings({ ...settings, showBranchStock: checked })}
+                    />
+                    <span className="text-sm text-muted-foreground">Stock por sucursal</span>
+                  </div>
+                </>
+              )}
             </div>
 
             <Separator />
@@ -255,15 +371,19 @@ export function PriceListPdfSettings() {
             <div className="space-y-3">
               <Label>Orden de columnas</Label>
               <div className="space-y-2">
-                {settings.columns.map((col, index) => (
+                {(isInvoice ? settings.invoiceColumns : settings.columns).map((col, index) => (
                   <div key={col} className="flex items-center justify-between border rounded-md px-3 py-2">
-                    <span className="text-sm">{columnLabels[col]}</span>
+                    <span className="text-sm">
+                      {isInvoice
+                        ? invoiceColumnLabels[col as InvoiceColumnKey]
+                        : columnLabels[col as PdfColumnKey]}
+                    </span>
                     <div className="flex items-center gap-2">
                       <Button
                         variant="ghost"
                         size="icon"
                         type="button"
-                        onClick={() => updateColumnOrder(index, "up")}
+                        onClick={() => updateColumnOrder(isInvoice ? "invoiceColumns" : "columns", index, "up")}
                         disabled={index === 0}
                       >
                         <ArrowUp className="w-4 h-4" />
@@ -272,8 +392,8 @@ export function PriceListPdfSettings() {
                         variant="ghost"
                         size="icon"
                         type="button"
-                        onClick={() => updateColumnOrder(index, "down")}
-                        disabled={index === settings.columns.length - 1}
+                        onClick={() => updateColumnOrder(isInvoice ? "invoiceColumns" : "columns", index, "down")}
+                        disabled={index === (isInvoice ? settings.invoiceColumns.length : settings.columns.length) - 1}
                       >
                         <ArrowDown className="w-4 h-4" />
                       </Button>
@@ -294,8 +414,13 @@ export function PriceListPdfSettings() {
             </div>
           </div>
 
-          <div className="border rounded-md overflow-hidden h-[520px]">
-            <iframe title="Preview PDF" src={previewUrl} className="w-full h-full" />
+          <div className="border rounded-md overflow-hidden h-[520px] flex items-center justify-center bg-muted/20">
+            {loadingPreview && (
+              <p className="text-sm text-muted-foreground">Generando preview...</p>
+            )}
+            {!loadingPreview && previewUrl && (
+              <iframe title="Preview PDF" src={previewUrl} className="w-full h-full" />
+            )}
           </div>
         </div>
       </CardContent>

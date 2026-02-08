@@ -87,6 +87,12 @@ export function registerAuthRoutes(app: Express) {
       if (!tenant) {
         return res.status(401).json({ error: "Negocio no encontrado" });
       }
+      if (tenant.deletedAt) {
+        return res.status(403).json({ error: "Negocio eliminado", code: "TENANT_DELETED" });
+      }
+      if (tenant.isBlocked) {
+        return res.status(403).json({ error: "Negocio bloqueado", code: "TENANT_BLOCKED" });
+      }
       if (!tenant.isActive) {
         return res.status(403).json({ error: "Cuenta bloqueada por falta de pago. Contacte al administrador.", code: "ACCOUNT_BLOCKED" });
       }

@@ -31,6 +31,9 @@ export class DatabaseStorage implements IStorage {
   updateTenantPlan = tenantStorage.updateTenantPlan;
   updateTenantSubscription = tenantStorage.updateTenantSubscription;
   updateTenantActive = tenantStorage.updateTenantActive;
+  updateTenantBlocked = tenantStorage.updateTenantBlocked;
+  updateTenantName = tenantStorage.updateTenantName;
+  softDeleteTenant = tenantStorage.softDeleteTenant;
   getTenantAddon = tenantStorage.getTenantAddon;
   getTenantAddons = tenantStorage.getTenantAddons;
   upsertTenantAddon = tenantStorage.upsertTenantAddon;
@@ -47,6 +50,7 @@ export class DatabaseStorage implements IStorage {
   getSuperAdminByEmail = userStorage.getSuperAdminByEmail;
   createUser = userStorage.createUser;
   getTenantAdmins = userStorage.getTenantAdmins;
+  getPrimaryTenantAdmin = userStorage.getPrimaryTenantAdmin;
   getUsersByIds = userStorage.getUsersByIds;
   softDeleteUser = userStorage.softDeleteUser;
   getBranchUsers = userStorage.getBranchUsers;
@@ -93,6 +97,8 @@ export class DatabaseStorage implements IStorage {
   getExpensesBreakdown = cashStorage.getExpensesBreakdown;
   getCashSessionsByBranch = cashStorage.getCashSessionsByBranch;
   getCashMovementsByBranch = cashStorage.getCashMovementsByBranch;
+  getTenantMonthlySummary = cashStorage.getTenantMonthlySummary;
+  upsertTenantMonthlySummary = cashStorage.upsertTenantMonthlySummary;
 
   getProductCategories = productStorage.getProductCategories;
   createProductCategory = productStorage.createProductCategory;
