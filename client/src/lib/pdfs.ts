@@ -1,4 +1,5 @@
 import { apiRequest, getToken } from "@/lib/auth";
+import { parseApiError } from "@/lib/api-errors";
 
 export type PdfTemplateKey = "CLASSIC" | "MODERN" | "MINIMAL" | "INVOICE_B";
 export type PdfPageSize = "A4" | "LETTER";
@@ -71,12 +72,31 @@ export async function fetchPdfPreview(documentType: PdfDocumentType): Promise<Bl
     body: JSON.stringify({ documentType }),
   });
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(text || res.statusText);
+    const info = await parseApiError(res);
+    throw new Error(info.message);
   }
   return res.blob();
 }
 
 export function getPdfDownloadUrl(documentType: PdfDocumentType) {
   return `/api/pdfs/download?documentType=${documentType}`;
+}
+
+export async function downloadPdfWithAuth(url: string, filename: string) {
+  const token = getToken();
+  const res = await fetch(url, {
+    method: "GET",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    const info = await parseApiError(res);
+    throw new Error(info.message);
+  }
+  const blob = await res.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(objectUrl);
 }

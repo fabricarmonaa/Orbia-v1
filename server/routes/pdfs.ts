@@ -81,7 +81,7 @@ export function registerPdfRoutes(app: Express) {
       const data = await storage.getTenantPdfSettings(req.auth!.tenantId!);
       res.json({ data });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "No se pudieron cargar los PDFs", code: "PDF_SETTINGS_ERROR" });
     }
   });
 
@@ -119,7 +119,7 @@ export function registerPdfRoutes(app: Express) {
       if (err instanceof z.ZodError) {
         return res.status(400).json({ error: "Datos inválidos", details: err.errors });
       }
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "No se pudieron guardar los PDFs", code: "PDF_SETTINGS_ERROR" });
     }
   });
 
@@ -128,7 +128,7 @@ export function registerPdfRoutes(app: Express) {
       const data = await storage.resetTenantPdfSettings(req.auth!.tenantId!);
       res.json({ data });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "No se pudo restaurar el PDF", code: "PDF_SETTINGS_ERROR" });
     }
   });
 
@@ -140,7 +140,7 @@ export function registerPdfRoutes(app: Express) {
       res.setHeader("Content-Disposition", "inline; filename=documento.pdf");
       res.send(pdfBuffer);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "No se pudo generar el PDF", code: "PDF_GENERATION_ERROR" });
     }
   });
 
@@ -152,7 +152,7 @@ export function registerPdfRoutes(app: Express) {
       res.setHeader("Content-Disposition", "attachment; filename=documento.pdf");
       res.send(pdfBuffer);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "No se pudo generar el PDF", code: "PDF_GENERATION_ERROR" });
     }
   });
 
@@ -161,7 +161,7 @@ export function registerPdfRoutes(app: Express) {
       const data = await storage.getTenantPdfSettings(req.auth!.tenantId!);
       res.json({ data });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "No se pudieron cargar los PDFs", code: "PDF_SETTINGS_ERROR" });
     }
   });
 
@@ -199,7 +199,7 @@ export function registerPdfRoutes(app: Express) {
       if (err instanceof z.ZodError) {
         return res.status(400).json({ error: "Datos inválidos", details: err.errors });
       }
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "No se pudieron guardar los PDFs", code: "PDF_SETTINGS_ERROR" });
     }
   });
 
@@ -208,7 +208,7 @@ export function registerPdfRoutes(app: Express) {
       const data = await storage.resetTenantPdfSettings(req.auth!.tenantId!);
       res.json({ data });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "No se pudo restaurar el PDF", code: "PDF_SETTINGS_ERROR" });
     }
   });
 
@@ -219,7 +219,7 @@ export function registerPdfRoutes(app: Express) {
       res.setHeader("Content-Disposition", "inline; filename=lista-precios.pdf");
       res.send(pdfBuffer);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "No se pudo generar el PDF", code: "PDF_GENERATION_ERROR" });
     }
   });
 
@@ -230,7 +230,7 @@ export function registerPdfRoutes(app: Express) {
       res.setHeader("Content-Disposition", "attachment; filename=lista-precios.pdf");
       res.send(pdfBuffer);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "No se pudo generar el PDF", code: "PDF_GENERATION_ERROR" });
     }
   });
 }

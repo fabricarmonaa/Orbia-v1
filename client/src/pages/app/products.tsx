@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { apiRequest, useAuth } from "@/lib/auth";
 import { queryClient } from "@/lib/queryClient";
 import { usePlan } from "@/lib/plan";
+import { downloadPdfWithAuth } from "@/lib/pdfs";
 import { VoiceCommand } from "@/components/voice-command";
 import { UpgradePrompt } from "@/components/upgrade-prompt";
 import { Card, CardContent } from "@/components/ui/card";
@@ -165,14 +166,7 @@ export default function ProductsPage() {
 
   async function exportPDF() {
     try {
-      const res = await apiRequest("GET", "/api/products/export");
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "productos.pdf";
-      a.click();
-      URL.revokeObjectURL(url);
+      await downloadPdfWithAuth("/api/products/export", "productos.pdf");
       toast({ title: "PDF descargado" });
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });

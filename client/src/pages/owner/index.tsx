@@ -53,6 +53,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useBranding } from "@/context/BrandingContext";
+import { parseApiError } from "@/lib/api-errors";
 import type { Tenant, Plan, TenantAddon } from "@shared/schema";
 
 function getSubscriptionStatus(tenant: Tenant): {
@@ -234,8 +235,8 @@ export default function OwnerDashboard() {
         body: formData,
       });
       if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || res.statusText);
+        const info = await parseApiError(res, { maxUploadBytes: 2000000 });
+        throw new Error(info.message);
       }
       const data = await res.json();
       if (data.data?.avatarUrl) {
@@ -267,8 +268,8 @@ export default function OwnerDashboard() {
         body: formData,
       });
       if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || res.statusText);
+        const info = await parseApiError(res, { maxUploadBytes: 1000000 });
+        throw new Error(info.message);
       }
       const data = await res.json();
       if (data.url) {

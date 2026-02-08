@@ -14,6 +14,7 @@ import {
   resetPdfSettings,
   fetchPdfPreview,
   getPdfDownloadUrl,
+  downloadPdfWithAuth,
   type PdfSettings,
   type PdfColumnKey,
   type PdfDocumentType,
@@ -132,6 +133,16 @@ export function PriceListPdfSettings() {
     }
   }
 
+  async function handleDownload() {
+    if (!settings) return;
+    try {
+      await downloadPdfWithAuth(getPdfDownloadUrl(settings.documentType), "documento.pdf");
+      toast({ title: "PDF descargado" });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    }
+  }
+
   if (loading || !settings) {
     return null;
   }
@@ -151,11 +162,9 @@ export function PriceListPdfSettings() {
               <RefreshCcw className="w-4 h-4 mr-2" />
               Actualizar preview
             </Button>
-            <Button variant="outline" size="sm" asChild>
-              <a href={getPdfDownloadUrl(settings.documentType)} target="_blank" rel="noreferrer">
-                <Download className="w-4 h-4 mr-2" />
-                Descargar PDF
-              </a>
+            <Button variant="outline" size="sm" onClick={handleDownload}>
+              <Download className="w-4 h-4 mr-2" />
+              Descargar PDF
             </Button>
           </div>
         </div>
