@@ -83,18 +83,24 @@ export function registerProductRoutes(app: Express) {
         branchStock: hasBranches ? (branchStockMap.get(p.id) || []) : undefined,
       }));
 
+      const page = filters.page ?? 1;
+      const pageSize = filters.pageSize ?? 20;
+      const stockMode = hasBranches ? "by_branch" : "global";
+
       res.json({
         data: normalized,
         meta: {
-          page: filters.page,
-          pageSize: filters.pageSize,
+          page,
+          pageSize,
           total,
+          totalPages: Math.max(1, Math.ceil(total / pageSize)),
+          stockMode,
         },
-        stockMode: hasBranches ? "by_branch" : "global",
+        stockMode,
       });
     } catch (err: any) {
       if (err instanceof z.ZodError) {
-        return res.status(400).json({ error: "Parámetros inválidos", code: "PRODUCT_FILTERS_INVALID", details: err.errors });
+        return res.status(400).json({ error: "Filtros inválidos. Revisá los valores ingresados.", code: "PRODUCT_FILTERS_INVALID" });
       }
       res.status(500).json({ error: err.message });
     }
@@ -273,6 +279,26 @@ export function registerProductRoutes(app: Express) {
       res.json({ data: { isActive: !existing.isActive } });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+
+  app.delete(
+    "/api/products/:id",
+    tenantAuth,
+    requireTenantAdmin,
+    requireFeature("products"),
+    blockBranchScope,
+    async (req, res) => {
+    try {
+      const tenantId = req.auth!.tenantId!;
+      const productId = parseInt(req.params.id as string);
+      const existing = await storage.getProductById(productId, tenantId);
+      if (!existing) return res.status(404).json({ error: "Producto no encontrado", code: "PRODUCT_NOT_FOUND" });
+      await storage.toggleProductActive(productId, tenantId, false);
+      res.json({ data: { id: productId, deleted: true } });
+    } catch {
+      res.status(500).json({ error: "No se pudo eliminar el producto", code: "PRODUCT_DELETE_ERROR" });
     }
   });
 

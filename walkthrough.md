@@ -1,19 +1,31 @@
 # Walkthrough de pruebas manuales
 
-## Productos + PDF filtros/selección
-- [ ] Crear 30 productos y deshabilitar 5.
-- [ ] Aplicar filtro `Estado = Activo` y exportar PDF filtrado. Verificar que no aparezcan los 5 inactivos.
-- [ ] Aplicar filtro por categoría y exportar PDF filtrado. Verificar que solo salgan productos de esa categoría.
-- [ ] Seleccionar 3 productos al azar y exportar "PDF con seleccionados". Verificar que salgan solo esos 3.
+## Productos: filtros + paginación
+- [ ] Abrir Productos y validar layout final: sidebar de filtros + tabla principal.
+- [ ] Aplicar búsqueda, categoría y estado (Activo/Inactivo/Todos) y confirmar resultados.
+- [ ] Probar precio mínimo/máximo y stock (con stock / sin stock / bajo stock).
+- [ ] Validar paginación (anterior/siguiente) y contador "Mostrando N de M".
 
-## Stock con/sin sucursales
-- [ ] Tenant sin sucursales: crear/editar producto con `stock` global y validar que se vea en UI (`stockTotal`) y en PDF.
-- [ ] Tenant con sucursales: cargar stock por sucursal y validar que `stockTotal` sea la suma.
-- [ ] Si setting PDF `showBranchStock = true`, validar que el PDF incluya desglose por sucursal.
+## Selección + exportación PDF
+- [ ] Seleccionar productos de la página actual y validar contador de selección.
+- [ ] Usar "Seleccionar todo (filtrado)" y validar que persiste en refresh (localStorage tenant).
+- [ ] Exportar "PDF con filtrados" y confirmar contenido según filtros.
+- [ ] Exportar "PDF con seleccionados" y confirmar que solo incluye seleccionados.
+- [ ] Validar mensajes amigables: selección vacía, sin resultados y exceso por límite de exportación.
 
-## UX y hardening
-- [ ] Preview PDF en Configuración no debe mostrar error CSP.
-- [ ] Download PDF debe funcionar autenticado (sin 401 por link directo).
-- [ ] Upload de logo grande debe mostrar mensaje humano (no JSON crudo).
-- [ ] Navegar a ruta inexistente y ver página 404.
-- [ ] En detalle de sucursal, validar que exista acción directa de "Eliminar sucursal".
+## CRUD de productos
+- [ ] Crear producto desde "Nuevo producto".
+- [ ] Editar producto (nombre/precio/categoría/etc.).
+- [ ] Activar/desactivar producto.
+- [ ] Eliminar producto (confirmación + marcado inactivo).
+
+## Stock por modo de tenant
+- [ ] Tenant sin sucursales: crear/editar con stock global y costo; ver `stockTotal` correcto.
+- [ ] Tenant con sucursales: ver total de stock y detalle por sucursal desde la tabla.
+- [ ] Confirmar que en modo sucursales el formulario no edita stock global.
+
+## Fix backend GET /api/products
+- [ ] Probar `GET /api/products?status=active`, `status=ACTIVE`, `status=all` y `state=active`.
+- [ ] Probar `minPrice`/`maxPrice` vacíos y `stock=low&lowStockThreshold=5`.
+- [ ] Confirmar 200 con payload `{ data, meta }` cuando parámetros son válidos.
+- [ ] Confirmar 400 (no 500) con `{ error, code }` cuando un parámetro es inválido.
