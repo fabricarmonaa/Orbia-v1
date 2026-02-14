@@ -52,7 +52,7 @@ export async function queryProductsByFilters(
   const stockAgg = db
     .select({
       productId: productStockByBranch.productId,
-      stockTotal: sql<number>`COALESCE(SUM(${productStockByBranch.stock}), 0)`,
+      stockTotal: sql<number>`COALESCE(SUM(${productStockByBranch.stock}), 0)`.as("stock_total"),
     })
     .from(productStockByBranch)
     .where(eq(productStockByBranch.tenantId, tenantId))
@@ -111,7 +111,7 @@ export async function queryProductsByFilters(
       sku: products.sku,
       isActive: products.isActive,
       createdAt: products.createdAt,
-      stockTotal: stockExpr,
+      stockTotal: stockExpr.as("stock_total"),
     })
     .from(products)
     .leftJoin(stockAgg, eq(stockAgg.productId, products.id))
