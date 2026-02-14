@@ -81,7 +81,8 @@ app.use((req, res, next) => {
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
+    const code = err.code || (status === 401 ? "TOKEN_REQUIRED" : status === 403 ? "FORBIDDEN" : "INTERNAL_ERROR");
+    const message = status >= 500 ? "Error interno del servidor" : err.message || "Solicitud inválida";
 
     console.error("Internal Server Error:", err);
 
@@ -89,7 +90,7 @@ app.use((req, res, next) => {
       return next(err);
     }
 
-    return res.status(status).json({ message });
+    return res.status(status).json({ error: message, code });
   });
 
   // importantly only setup vite in development and after

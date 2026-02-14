@@ -1,757 +1,328 @@
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { apiRequest, useAuth } from "@/lib/auth";
-import { queryClient } from "@/lib/queryClient";
 import { usePlan } from "@/lib/plan";
-import { VoiceCommand } from "@/components/voice-command";
+import { downloadPriceListPdf, type PriceListExportPayload } from "@/lib/pdfs";
 import { UpgradePrompt } from "@/components/upgrade-prompt";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Switch } from "@/components/ui/switch";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Plus, Search, Package, Tag, Mic, Download, Pencil, Power, Warehouse } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import type { Product, ProductCategory } from "@shared/schema";
+
+type ProductCategory = { id: number; name: string };
+type ProductRow = {
+  id: number;
+  name: string;
+  sku: string | null;
+  description: string | null;
+  price: string;
+  isActive: boolean;
+  categoryId: number | null;
+  stockTotal: number;
+};
+
+type ProductQuery = {
+  q: string;
+  categoryId: string;
+  status: "all" | "active" | "inactive";
+  minPrice: string;
+  maxPrice: string;
+  stock: "all" | "in" | "out" | "low";
+  lowStockThreshold: string;
+  sort: "name" | "price" | "stock" | "createdAt";
+  dir: "asc" | "desc";
+  page: number;
+  pageSize: number;
+};
+
+const DEFAULT_FILTERS: ProductQuery = {
+  q: "",
+  categoryId: "all",
+  status: "all",
+  minPrice: "",
+  maxPrice: "",
+  stock: "all",
+  lowStockThreshold: "5",
+  sort: "createdAt",
+  dir: "desc",
+  page: 1,
+  pageSize: 20,
+};
 
 export default function ProductsPage() {
   const { hasFeature, loading: planLoading } = usePlan();
   const { user } = useAuth();
-  const [products, setProducts] = useState<Product[]>([]);
-  const [categories, setCategories] = useState<ProductCategory[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
-  const [filterCat, setFilterCat] = useState("all");
-  const [productDialog, setProductDialog] = useState(false);
-  const [catDialog, setCatDialog] = useState(false);
-  const [editDialog, setEditDialog] = useState(false);
-  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
-  const [showVoice, setShowVoice] = useState(false);
-  const [stockDialog, setStockDialog] = useState(false);
-  const [stockProduct, setStockProduct] = useState<Product | null>(null);
-  const [stockByBranch, setStockByBranch] = useState<Array<{ branchId: number; branchName: string; stock: number }>>([]);
-  const [stockMovements, setStockMovements] = useState<any[]>([]);
-  const [stockLoading, setStockLoading] = useState(false);
   const { toast } = useToast();
-
-  const [newProduct, setNewProduct] = useState({
-    name: "",
-    description: "",
-    price: "",
-    sku: "",
-    categoryId: "",
-    cost: "",
-    stock: "",
-  });
-  const [editForm, setEditForm] = useState({
-    name: "",
-    description: "",
-    price: "",
-    sku: "",
-    categoryId: "",
-    cost: "",
-    stock: "",
-  });
-  const [newCat, setNewCat] = useState("");
-
   const canAccess = hasFeature("products");
-  const isTenantAdmin = user?.role === "admin";
+
+  const [loading, setLoading] = useState(true);
+  const [categories, setCategories] = useState<ProductCategory[]>([]);
+  const [rows, setRows] = useState<ProductRow[]>([]);
+  const [filters, setFilters] = useState<ProductQuery>(DEFAULT_FILTERS);
+  const [draft, setDraft] = useState<ProductQuery>(DEFAULT_FILTERS);
+  const [meta, setMeta] = useState({ total: 0, page: 1, pageSize: 20 });
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+
+  const selectionKey = `orbia:products:selected:${user?.tenantId ?? "anon"}`;
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(selectionKey);
+      if (raw) {
+        const ids = JSON.parse(raw) as number[];
+        setSelectedIds(new Set(ids));
+      }
+    } catch {
+      setSelectedIds(new Set());
+    }
+  }, [selectionKey]);
+
+  useEffect(() => {
+    localStorage.setItem(selectionKey, JSON.stringify(Array.from(selectedIds)));
+  }, [selectedIds, selectionKey]);
+
+  useEffect(() => {
+    if (!canAccess) {
+      setLoading(false);
+      return;
+    }
+    void fetchCategories();
+  }, [canAccess]);
 
   useEffect(() => {
     if (canAccess) {
-      fetchData();
-    } else {
-      setLoading(false);
+      void fetchProducts(filters);
     }
-  }, [canAccess]);
+  }, [filters, canAccess]);
 
-  async function fetchData() {
+  async function fetchCategories() {
     try {
-      const [productsRes, catsRes] = await Promise.all([
-        apiRequest("GET", "/api/products"),
-        apiRequest("GET", "/api/product-categories"),
-      ]);
-      const productsData = await productsRes.json();
-      const catsData = await catsRes.json();
-      setProducts(productsData.data || []);
-      setCategories(catsData.data || []);
-    } catch (err: any) {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function createProduct(e: React.FormEvent) {
-    e.preventDefault();
-    try {
-      await apiRequest("POST", "/api/products", {
-        ...newProduct,
-        price: parseFloat(newProduct.price),
-        categoryId: newProduct.categoryId ? parseInt(newProduct.categoryId) : null,
-        cost: newProduct.cost ? parseFloat(newProduct.cost) : null,
-        stock: newProduct.stock ? parseInt(newProduct.stock) : null,
-      });
-      toast({ title: "Producto creado" });
-      setProductDialog(false);
-      setNewProduct({ name: "", description: "", price: "", sku: "", categoryId: "", cost: "", stock: "" });
-      fetchData();
-    } catch (err: any) {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
-    }
-  }
-
-  function openEdit(product: Product) {
-    setEditingProduct(product);
-    setEditForm({
-      name: product.name,
-      description: product.description || "",
-      price: product.price,
-      sku: product.sku || "",
-      categoryId: product.categoryId ? String(product.categoryId) : "",
-      cost: product.cost ?? "",
-      stock: product.stock != null ? String(product.stock) : "",
-    });
-    setEditDialog(true);
-  }
-
-  async function updateProduct(e: React.FormEvent) {
-    e.preventDefault();
-    if (!editingProduct) return;
-    try {
-      await apiRequest("PUT", `/api/products/${editingProduct.id}`, {
-        name: editForm.name,
-        description: editForm.description,
-        price: parseFloat(editForm.price),
-        sku: editForm.sku,
-        categoryId: editForm.categoryId ? parseInt(editForm.categoryId) : null,
-        cost: editForm.cost ? parseFloat(editForm.cost) : null,
-        stock: editForm.stock ? parseInt(editForm.stock) : null,
-      });
-      toast({ title: "Producto actualizado" });
-      setEditDialog(false);
-      setEditingProduct(null);
-      fetchData();
-    } catch (err: any) {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
-    }
-  }
-
-  async function toggleActive(product: Product) {
-    try {
-      await apiRequest("PATCH", `/api/products/${product.id}/toggle`);
-      toast({ title: product.isActive ? "Producto desactivado" : "Producto activado" });
-      fetchData();
-    } catch (err: any) {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
-    }
-  }
-
-  async function exportPDF() {
-    try {
-      const res = await apiRequest("GET", "/api/products/export");
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "productos.pdf";
-      a.click();
-      URL.revokeObjectURL(url);
-      toast({ title: "PDF descargado" });
-    } catch (err: any) {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
-    }
-  }
-
-  function handleVoiceResult() {
-    setShowVoice(false);
-    queryClient.invalidateQueries({ queryKey: ["/api/products"] });
-  }
-
-  async function openStockDialog(product: Product) {
-    setStockProduct(product);
-    setStockDialog(true);
-    setStockLoading(true);
-    try {
-      const res = await apiRequest("GET", `/api/products/${product.id}/stock`);
+      const res = await apiRequest("GET", "/api/product-categories");
       const data = await res.json();
-      setStockByBranch(data.data?.stockByBranch || []);
-      setStockMovements(data.data?.movements || []);
-    } catch {
-      setStockByBranch([]);
-      setStockMovements([]);
+      setCategories(data.data || []);
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    }
+  }
+
+  function buildQuery(current: ProductQuery) {
+    const params = new URLSearchParams();
+    if (current.q) params.set("q", current.q);
+    if (current.categoryId !== "all") params.set("categoryId", current.categoryId);
+    params.set("status", current.status);
+    if (current.minPrice) params.set("minPrice", current.minPrice);
+    if (current.maxPrice) params.set("maxPrice", current.maxPrice);
+    params.set("stock", current.stock);
+    params.set("lowStockThreshold", current.lowStockThreshold || "5");
+    params.set("sort", current.sort);
+    params.set("dir", current.dir);
+    params.set("page", String(current.page));
+    params.set("pageSize", String(current.pageSize));
+    return params.toString();
+  }
+
+  async function fetchProducts(current: ProductQuery) {
+    setLoading(true);
+    try {
+      const res = await apiRequest("GET", `/api/products?${buildQuery(current)}`);
+      const json = await res.json();
+      setRows(json.data || []);
+      setMeta(json.meta || { total: 0, page: current.page, pageSize: current.pageSize });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
     } finally {
-      setStockLoading(false);
+      setLoading(false);
     }
   }
 
-  async function updateBranchStock(branchId: number, newStock: number, reason: string) {
-    if (!stockProduct) return;
+  async function selectAllFiltered() {
     try {
-      await apiRequest("PATCH", `/api/products/${stockProduct.id}/stock`, {
-        branchId,
-        stock: newStock,
-        reason: reason || "Ajuste manual",
-      });
-      toast({ title: "Stock actualizado" });
-      openStockDialog(stockProduct);
+      const res = await apiRequest("GET", `/api/products?${buildQuery({ ...filters, page: 1, pageSize: 100 })}`);
+      const json = await res.json();
+      const total = json.meta?.total || 0;
+      let ids: number[] = (json.data || []).map((p: ProductRow) => p.id);
+      const pages = Math.ceil(total / 100);
+      for (let page = 2; page <= pages; page++) {
+        const pageRes = await apiRequest("GET", `/api/products?${buildQuery({ ...filters, page, pageSize: 100 })}`);
+        const pageJson = await pageRes.json();
+        ids = ids.concat((pageJson.data || []).map((p: ProductRow) => p.id));
+      }
+      setSelectedIds(new Set(ids));
+      toast({ title: "Selección actualizada", description: `Seleccionados: ${ids.length}` });
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
     }
   }
 
-  async function createCategory(e: React.FormEvent) {
-    e.preventDefault();
+  function toExportPayload(mode: "filtered" | "selected"): PriceListExportPayload {
+    return {
+      mode,
+      filters: {
+        q: filters.q || undefined,
+        categoryId: filters.categoryId === "all" ? undefined : Number(filters.categoryId),
+        status: filters.status,
+        minPrice: filters.minPrice ? Number(filters.minPrice) : undefined,
+        maxPrice: filters.maxPrice ? Number(filters.maxPrice) : undefined,
+        stock: filters.stock,
+        lowStockThreshold: Number(filters.lowStockThreshold || 5),
+        sort: filters.sort,
+        dir: filters.dir,
+      },
+      selectedIds: Array.from(selectedIds),
+    };
+  }
+
+  async function handleDownload(mode: "filtered" | "selected") {
     try {
-      await apiRequest("POST", "/api/product-categories", { name: newCat });
-      toast({ title: "Categoría creada" });
-      setCatDialog(false);
-      setNewCat("");
-      fetchData();
+      await downloadPriceListPdf(toExportPayload(mode));
+      toast({ title: "PDF generado" });
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
     }
   }
 
-  if (planLoading) {
-    return (
-      <div className="space-y-6">
-        <Skeleton className="h-8 w-48" />
-        <Skeleton className="h-64 w-full rounded-md" />
-      </div>
-    );
-  }
+  const pageSelected = useMemo(() => rows.every((row) => selectedIds.has(row.id)) && rows.length > 0, [rows, selectedIds]);
+
+  if (planLoading) return <Skeleton className="h-64 w-full" />;
 
   if (!canAccess) {
-    return (
-      <UpgradePrompt
-        feature="products"
-        title="Productos"
-        description="Catálogo de productos y servicios"
-      />
-    );
-  }
-
-  const filteredProducts = products.filter((p) => {
-    const matchSearch = p.name.toLowerCase().includes(search.toLowerCase()) ||
-      (p.sku || "").toLowerCase().includes(search.toLowerCase());
-    const matchCat = filterCat === "all" || String(p.categoryId) === filterCat;
-    return matchSearch && matchCat;
-  });
-
-  function getCatName(catId: number | null) {
-    if (!catId) return "Sin categoría";
-    return categories.find((c) => c.id === catId)?.name || "Sin categoría";
+    return <UpgradePrompt feature="products" title="Productos" description="Catálogo de productos y servicios" />;
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Productos</h1>
-          <p className="text-muted-foreground">Catálogo de productos y servicios</p>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          {hasFeature("stt") && !showVoice && (
-            <Button variant="outline" onClick={() => setShowVoice(true)} data-testid="button-voice-product">
-              <Mic className="w-4 h-4 mr-2" />
-              Dictar
-            </Button>
-          )}
-          <Button variant="outline" onClick={exportPDF} data-testid="button-export-pdf">
-            <Download className="w-4 h-4 mr-2" />
-            PDF
-          </Button>
-          {isTenantAdmin && (
-            <>
-              <Dialog open={catDialog} onOpenChange={setCatDialog}>
-                <DialogTrigger asChild>
-                  <Button variant="outline" data-testid="button-create-category">
-                    <Tag className="w-4 h-4 mr-2" />
-                    Categoría
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Nueva Categoría</DialogTitle>
-                  </DialogHeader>
-                  <form onSubmit={createCategory} className="space-y-4">
-                    <div className="space-y-2">
-                      <Label>Nombre</Label>
-                      <Input
-                        placeholder="Nombre de la categoría"
-                        value={newCat}
-                        onChange={(e) => setNewCat(e.target.value)}
-                        required
-                        data-testid="input-category-name"
-                      />
-                    </div>
-                    <Button type="submit" className="w-full" data-testid="button-submit-category">
-                      Crear Categoría
-                    </Button>
-                  </form>
-                </DialogContent>
-              </Dialog>
-
-              <Dialog open={productDialog} onOpenChange={setProductDialog}>
-                <DialogTrigger asChild>
-                  <Button data-testid="button-create-product">
-                    <Plus className="w-4 h-4 mr-2" />
-                    Nuevo Producto
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Nuevo Producto</DialogTitle>
-                  </DialogHeader>
-                  <form onSubmit={createProduct} className="space-y-4">
-                    <div className="space-y-2">
-                      <Label>Nombre</Label>
-                      <Input
-                        placeholder="Nombre del producto"
-                        value={newProduct.name}
-                        onChange={(e) => setNewProduct({ ...newProduct, name: e.target.value })}
-                        required
-                        data-testid="input-product-name"
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label>Precio</Label>
-                        <Input
-                          type="number"
-                          step="0.01"
-                          placeholder="0.00"
-                          value={newProduct.price}
-                          onChange={(e) => setNewProduct({ ...newProduct, price: e.target.value })}
-                          required
-                          data-testid="input-product-price"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>SKU</Label>
-                        <Input
-                          placeholder="Código"
-                          value={newProduct.sku}
-                          onChange={(e) => setNewProduct({ ...newProduct, sku: e.target.value })}
-                          data-testid="input-product-sku"
-                        />
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Categoría</Label>
-                      <Select
-                        value={newProduct.categoryId}
-                        onValueChange={(v) => setNewProduct({ ...newProduct, categoryId: v })}
-                      >
-                        <SelectTrigger data-testid="select-product-category">
-                          <SelectValue placeholder="Seleccionar categoría" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {categories.map((c) => (
-                            <SelectItem key={c.id} value={String(c.id)}>
-                              {c.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label>Costo</Label>
-                        <Input
-                          type="number"
-                          step="0.01"
-                          placeholder="0.00"
-                          value={newProduct.cost}
-                          onChange={(e) => setNewProduct({ ...newProduct, cost: e.target.value })}
-                          data-testid="input-product-cost"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Stock</Label>
-                        <Input
-                          type="number"
-                          step="1"
-                          placeholder="0"
-                          value={newProduct.stock}
-                          onChange={(e) => setNewProduct({ ...newProduct, stock: e.target.value })}
-                          data-testid="input-product-stock"
-                        />
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Descripción</Label>
-                      <Textarea
-                        placeholder="Descripción del producto"
-                        value={newProduct.description}
-                        onChange={(e) => setNewProduct({ ...newProduct, description: e.target.value })}
-                        data-testid="input-product-description"
-                      />
-                    </div>
-                    <Button type="submit" className="w-full" data-testid="button-submit-product">
-                      Crear Producto
-                    </Button>
-                  </form>
-                </DialogContent>
-              </Dialog>
-            </>
-          )}
-        </div>
+    <div className="space-y-4">
+      <div>
+        <h1 className="text-2xl font-bold">Productos</h1>
+        <p className="text-muted-foreground">Filtros server-side + exportación PDF profesional</p>
       </div>
 
-      {showVoice && (
-        <VoiceCommand
-          context="products"
-          onResult={handleVoiceResult}
-          onCancel={() => setShowVoice(false)}
-        />
-      )}
+      <Card>
+        <CardContent className="pt-6 grid gap-3 md:grid-cols-4">
+          <div className="space-y-2 md:col-span-2">
+            <Label>Búsqueda</Label>
+            <Input value={draft.q} onChange={(e) => setDraft((p) => ({ ...p, q: e.target.value }))} placeholder="Nombre, SKU o descripción" />
+          </div>
+          <div className="space-y-2">
+            <Label>Categoría</Label>
+            <Select value={draft.categoryId} onValueChange={(v) => setDraft((p) => ({ ...p, categoryId: v }))}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas</SelectItem>
+                {categories.map((c) => <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>Estado</Label>
+            <Select value={draft.status} onValueChange={(v: any) => setDraft((p) => ({ ...p, status: v }))}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos</SelectItem>
+                <SelectItem value="active">Activo</SelectItem>
+                <SelectItem value="inactive">Inactivo</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2"><Label>Precio mínimo</Label><Input type="number" value={draft.minPrice} onChange={(e) => setDraft((p) => ({ ...p, minPrice: e.target.value }))} /></div>
+          <div className="space-y-2"><Label>Precio máximo</Label><Input type="number" value={draft.maxPrice} onChange={(e) => setDraft((p) => ({ ...p, maxPrice: e.target.value }))} /></div>
+          <div className="space-y-2">
+            <Label>Stock</Label>
+            <Select value={draft.stock} onValueChange={(v: any) => setDraft((p) => ({ ...p, stock: v }))}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos</SelectItem>
+                <SelectItem value="in">Con stock</SelectItem>
+                <SelectItem value="out">Sin stock</SelectItem>
+                <SelectItem value="low">Bajo stock</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2"><Label>Umbral bajo stock</Label><Input type="number" value={draft.lowStockThreshold} onChange={(e) => setDraft((p) => ({ ...p, lowStockThreshold: e.target.value }))} /></div>
+          <div className="space-y-2">
+            <Label>Orden</Label>
+            <Select value={draft.sort} onValueChange={(v: any) => setDraft((p) => ({ ...p, sort: v }))}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="createdAt">Fecha creación</SelectItem>
+                <SelectItem value="name">Nombre</SelectItem>
+                <SelectItem value="price">Precio</SelectItem>
+                <SelectItem value="stock">Stock</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>Dirección</Label>
+            <Select value={draft.dir} onValueChange={(v: any) => setDraft((p) => ({ ...p, dir: v }))}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="asc">Ascendente</SelectItem>
+                <SelectItem value="desc">Descendente</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="md:col-span-4 flex flex-wrap gap-2">
+            <Button onClick={() => setFilters({ ...draft, page: 1 })}>Aplicar</Button>
+            <Button variant="outline" onClick={() => { setDraft(DEFAULT_FILTERS); setFilters(DEFAULT_FILTERS); }}>Limpiar</Button>
+            <Button variant="outline" onClick={() => setSelectedIds(new Set())}>Limpiar selección</Button>
+            <Button variant="outline" onClick={selectAllFiltered}>Seleccionar todo (filtrado)</Button>
+            <Button variant="outline" onClick={() => handleDownload("filtered")}>PDF con filtrados</Button>
+            <Button variant="outline" disabled={selectedIds.size === 0} onClick={() => handleDownload("selected")}>PDF con seleccionados</Button>
+            <Badge variant="secondary">Seleccionados: {selectedIds.size}</Badge>
+          </div>
+        </CardContent>
+      </Card>
 
-      <div className="flex items-center gap-3 flex-wrap">
-        <div className="relative flex-1 min-w-[200px]">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Buscar productos..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
-            data-testid="input-search-products"
-          />
-        </div>
-        <Select value={filterCat} onValueChange={setFilterCat}>
-          <SelectTrigger className="w-40" data-testid="select-filter-category">
-            <SelectValue placeholder="Categoría" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todas</SelectItem>
-            {categories.map((c) => (
-              <SelectItem key={c.id} value={String(c.id)}>
-                {c.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+      <Card>
+        <CardContent className="pt-6">
+          <div className="flex items-center gap-2 mb-3">
+            <Checkbox checked={pageSelected} onCheckedChange={(checked) => {
+              const next = new Set(selectedIds);
+              if (checked) rows.forEach((r) => next.add(r.id)); else rows.forEach((r) => next.delete(r.id));
+              setSelectedIds(next);
+            }} />
+            <span className="text-sm text-muted-foreground">Seleccionar página</span>
+          </div>
 
-      {loading ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {[1, 2, 3, 4, 5, 6].map((i) => (
-            <Skeleton key={i} className="h-32 w-full rounded-md" />
-          ))}
-        </div>
-      ) : filteredProducts.length === 0 ? (
-        <Card>
-          <CardContent className="py-16 text-center">
-            <Package className="w-12 h-12 mx-auto text-muted-foreground mb-3" />
-            <p className="text-muted-foreground font-medium">No hay productos</p>
-            <p className="text-sm text-muted-foreground mt-1">
-              {search ? "Probá con otra búsqueda" : "Creá tu primer producto"}
-            </p>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredProducts.map((product) => (
-            <Card
-              key={product.id}
-              className={`hover-elevate ${!product.isActive ? "opacity-60" : ""}`}
-              data-testid={`card-product-${product.id}`}
-            >
-              <CardContent className="pt-6">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <p className="font-medium truncate">{product.name}</p>
-                      {!product.isActive && <Badge variant="outline">Inactivo</Badge>}
-                    </div>
-                    {product.description && (
-                      <p className="text-sm text-muted-foreground line-clamp-2 mt-1">
-                        {product.description}
-                      </p>
-                    )}
-                    <div className="flex items-center gap-2 mt-3 flex-wrap">
-                      <Badge variant="secondary">{getCatName(product.categoryId)}</Badge>
-                      {product.sku && (
-                        <span className="text-xs text-muted-foreground">SKU: {product.sku}</span>
-                      )}
-                      {product.stock != null && (
-                        <span className="text-xs text-muted-foreground">Stock: {product.stock}</span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                    <p className="text-lg font-bold">${parseFloat(product.price).toLocaleString("es-AR")}</p>
-                    {product.cost && (
-                      <p className="text-xs text-muted-foreground">
-                        Costo: ${parseFloat(product.cost).toLocaleString("es-AR")}
-                      </p>
-                    )}
-                  </div>
-                </div>
-                <div className="flex items-center justify-end gap-1 mt-3">
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    onClick={() => openStockDialog(product)}
-                    data-testid={`button-stock-product-${product.id}`}
-                  >
-                    <Warehouse className="w-4 h-4" />
-                  </Button>
-                  {isTenantAdmin && (
-                    <>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => openEdit(product)}
-                        data-testid={`button-edit-product-${product.id}`}
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </Button>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => toggleActive(product)}
-                        data-testid={`button-toggle-product-${product.id}`}
-                      >
-                        <Power className="w-4 h-4" />
-                      </Button>
-                    </>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
-
-      <Dialog open={stockDialog} onOpenChange={setStockDialog}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Warehouse className="w-5 h-5" />
-              Stock por Sucursal - {stockProduct?.name}
-            </DialogTitle>
-          </DialogHeader>
-          {stockLoading ? (
-            <div className="space-y-2">
-              <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-10 w-full" />
-            </div>
+          {loading ? (
+            <Skeleton className="h-52 w-full" />
           ) : (
-            <div className="space-y-4">
-              {stockByBranch.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-4">
-                  No hay sucursales configuradas
-                </p>
-              ) : (
-                <div className="space-y-3">
-                  {stockByBranch.map((branch) => {
-                    const currentStock = branch.stock ?? 0;
-                    return (
-                      <div
-                        key={`${branch.branchId}-${currentStock}`}
-                        className="flex items-center justify-between gap-3 p-3 rounded-md bg-muted/50"
-                        data-testid={`stock-branch-${branch.branchId}`}
-                      >
-                        <div className="min-w-0">
-                          <p className="font-medium text-sm">{branch.branchName}</p>
-                          <p className="text-xs text-muted-foreground">
-                            Stock actual: {currentStock}
-                          </p>
-                        </div>
-                        {isTenantAdmin ? (
-                          <div className="flex items-center gap-2">
-                            <Input
-                              type="number"
-                              step="1"
-                              min="0"
-                              className="w-20"
-                              defaultValue={currentStock}
-                              data-testid={`input-stock-${branch.branchId}`}
-                              onBlur={(e) => {
-                                const val = parseInt(e.target.value);
-                                if (!isNaN(val) && val >= 0 && val !== currentStock) {
-                                  updateBranchStock(branch.branchId, val, "Ajuste manual");
-                                }
-                              }}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") {
-                                  const val = parseInt(
-                                    (e.target as HTMLInputElement).value
-                                  );
-                                  if (!isNaN(val) && val >= 0 && val !== currentStock) {
-                                    updateBranchStock(branch.branchId, val, "Ajuste manual");
-                                  }
-                                }
-                              }}
-                            />
-                          </div>
-                        ) : (
-                          <Badge variant="secondary" className="text-xs">
-                            Solo lectura
-                          </Badge>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {stockMovements.length > 0 && (
-                <div className="space-y-2">
-                  <p className="text-sm font-medium text-muted-foreground">
-                    Movimientos recientes
-                  </p>
-                  <div className="max-h-40 overflow-y-auto space-y-1">
-                    {stockMovements.slice(0, 10).map((m: any, i: number) => (
-                      <div
-                        key={m.id || i}
-                        className="flex items-center justify-between text-xs p-2 rounded bg-muted/30"
-                        data-testid={`stock-movement-${m.id || i}`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <span
-                            className={
-                              m.quantity > 0
-                                ? "text-green-600 dark:text-green-400 font-medium"
-                                : "text-red-600 dark:text-red-400 font-medium"
-                            }
-                          >
-                            {m.quantity > 0 ? "+" : ""}
-                            {m.quantity}
-                          </span>
-                          <span className="text-muted-foreground">
-                            {m.reason || "Sin razón"}
-                          </span>
-                        </div>
-                        <span className="text-muted-foreground">
-                          {m.createdAt
-                            ? new Date(m.createdAt).toLocaleDateString("es-AR")
-                            : ""}
-                        </span>
-                      </div>
-                    ))}
+            <div className="space-y-2">
+              {rows.map((p) => (
+                <div key={p.id} className="border rounded-md p-3 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <Checkbox checked={selectedIds.has(p.id)} onCheckedChange={(checked) => {
+                      const next = new Set(selectedIds);
+                      if (checked) next.add(p.id); else next.delete(p.id);
+                      setSelectedIds(next);
+                    }} />
+                    <div className="min-w-0">
+                      <p className="font-medium truncate">{p.name}</p>
+                      <p className="text-sm text-muted-foreground truncate">SKU: {p.sku || "-"} · Stock total: {p.stockTotal}</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-semibold">${Number(p.price).toLocaleString("es-AR")}</p>
+                    <Badge variant={p.isActive ? "default" : "secondary"}>{p.isActive ? "Activo" : "Inactivo"}</Badge>
                   </div>
                 </div>
-              )}
+              ))}
             </div>
           )}
-        </DialogContent>
-      </Dialog>
 
-      <Dialog open={editDialog} onOpenChange={setEditDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Editar Producto</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={updateProduct} className="space-y-4">
-            <div className="space-y-2">
-              <Label>Nombre</Label>
-              <Input
-                placeholder="Nombre del producto"
-                value={editForm.name}
-                onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-                required
-                data-testid="input-edit-product-name"
-              />
+          <div className="mt-4 flex items-center justify-between">
+            <p className="text-sm text-muted-foreground">Total: {meta.total}</p>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" disabled={filters.page <= 1} onClick={() => setFilters((p) => ({ ...p, page: p.page - 1 }))}>Anterior</Button>
+              <span className="text-sm">Página {filters.page}</span>
+              <Button variant="outline" disabled={filters.page * filters.pageSize >= meta.total} onClick={() => setFilters((p) => ({ ...p, page: p.page + 1 }))}>Siguiente</Button>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Precio</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  placeholder="0.00"
-                  value={editForm.price}
-                  onChange={(e) => setEditForm({ ...editForm, price: e.target.value })}
-                  required
-                  data-testid="input-edit-product-price"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>SKU</Label>
-                <Input
-                  placeholder="Código"
-                  value={editForm.sku}
-                  onChange={(e) => setEditForm({ ...editForm, sku: e.target.value })}
-                  data-testid="input-edit-product-sku"
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Categoría</Label>
-              <Select
-                value={editForm.categoryId}
-                onValueChange={(v) => setEditForm({ ...editForm, categoryId: v })}
-              >
-                <SelectTrigger data-testid="select-edit-product-category">
-                  <SelectValue placeholder="Seleccionar categoría" />
-                </SelectTrigger>
-                <SelectContent>
-                  {categories.map((c) => (
-                    <SelectItem key={c.id} value={String(c.id)}>
-                      {c.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Costo</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  placeholder="0.00"
-                  value={editForm.cost}
-                  onChange={(e) => setEditForm({ ...editForm, cost: e.target.value })}
-                  data-testid="input-edit-product-cost"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Stock</Label>
-                <Input
-                  type="number"
-                  step="1"
-                  placeholder="0"
-                  value={editForm.stock}
-                  onChange={(e) => setEditForm({ ...editForm, stock: e.target.value })}
-                  data-testid="input-edit-product-stock"
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Descripción</Label>
-              <Textarea
-                placeholder="Descripción del producto"
-                value={editForm.description}
-                onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
-                data-testid="input-edit-product-description"
-              />
-            </div>
-            <Button type="submit" className="w-full" data-testid="button-submit-edit-product">
-              Guardar Cambios
-            </Button>
-          </form>
-        </DialogContent>
-      </Dialog>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

@@ -20,6 +20,7 @@ export const tenantPdfSettings = pgTable(
       .references(() => tenants.id)
       .notNull()
       .unique(),
+    documentType: varchar("document_type", { length: 20 }).notNull().default("PRICE_LIST"),
     templateKey: varchar("template_key", { length: 20 }).notNull().default("CLASSIC"),
     pageSize: varchar("page_size", { length: 10 }).notNull().default("A4"),
     orientation: varchar("orientation", { length: 12 }).notNull().default("portrait"),
@@ -33,6 +34,14 @@ export const tenantPdfSettings = pgTable(
     priceColumnLabel: varchar("price_column_label", { length: 30 }).notNull().default("Precio"),
     currencySymbol: varchar("currency_symbol", { length: 5 }).notNull().default("$"),
     columnsJson: jsonb("columns_json").default([]),
+    invoiceColumnsJson: jsonb("invoice_columns_json").default([]),
+    documentTitle: varchar("document_title", { length: 80 }),
+    fiscalName: varchar("fiscal_name", { length: 120 }),
+    fiscalCuit: varchar("fiscal_cuit", { length: 30 }),
+    fiscalIibb: varchar("fiscal_iibb", { length: 30 }),
+    fiscalAddress: varchar("fiscal_address", { length: 160 }),
+    fiscalCity: varchar("fiscal_city", { length: 120 }),
+    showFooterTotals: boolean("show_footer_totals").notNull().default(true),
     stylesJson: jsonb("styles_json").default({}),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { apiRequest, useAuth, getToken } from "@/lib/auth";
+import { parseApiError } from "@/lib/api-errors";
 import { usePlan } from "@/lib/plan";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -181,8 +182,8 @@ export default function SettingsPage() {
         body: formData,
       });
       if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || res.statusText);
+        const info = await parseApiError(res, { maxUploadBytes: 1000000 });
+        throw new Error(info.message);
       }
       const data = await res.json();
       if (data.url) {

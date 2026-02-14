@@ -28,6 +28,7 @@ import type {
   TenantBranding, InsertTenantBranding,
   AppBranding, InsertAppBranding,
   TenantPdfSettings, InsertTenantPdfSettings,
+  TenantMonthlySummary, InsertTenantMonthlySummary,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -46,6 +47,7 @@ export interface IStorage {
   getSuperAdminByEmail(email: string): Promise<User | undefined>;
   createUser(data: InsertUser): Promise<User>;
   getTenantAdmins(tenantId: number): Promise<User[]>;
+  getPrimaryTenantAdmin(tenantId: number): Promise<User | undefined>;
   getUsersByIds(tenantId: number, userIds: number[]): Promise<User[]>;
   softDeleteUser(id: number, tenantId: number): Promise<User | undefined>;
   getBranchUsers(tenantId: number, branchId?: number): Promise<User[]>;
@@ -55,6 +57,7 @@ export interface IStorage {
   upsertConfig(data: InsertTenantConfig): Promise<TenantConfig>;
 
   getBranches(tenantId: number): Promise<Branch[]>;
+  countBranchesByTenant(tenantId: number): Promise<number>;
   createBranch(data: InsertBranch): Promise<Branch>;
   softDeleteBranch(id: number, tenantId: number): Promise<Branch | undefined>;
 
@@ -169,6 +172,9 @@ export interface IStorage {
 
   updateTenantSubscription(tenantId: number, startDate: Date, endDate: Date): Promise<void>;
   updateTenantActive(tenantId: number, isActive: boolean): Promise<void>;
+  updateTenantBlocked(tenantId: number, isBlocked: boolean): Promise<void>;
+  updateTenantName(tenantId: number, name: string): Promise<void>;
+  softDeleteTenant(tenantId: number): Promise<void>;
 
   getTenantBranding(tenantId: number): Promise<{
     id: number | null;
@@ -192,6 +198,7 @@ export interface IStorage {
   getTenantPdfSettings(tenantId: number): Promise<{
     id: number | null;
     tenantId: number;
+    documentType: string;
     templateKey: string;
     pageSize: string;
     orientation: string;
@@ -205,6 +212,14 @@ export interface IStorage {
     priceColumnLabel: string;
     currencySymbol: string;
     columns: string[];
+    invoiceColumns: string[];
+    documentTitle: string;
+    fiscalName: string | null;
+    fiscalCuit: string | null;
+    fiscalIibb: string | null;
+    fiscalAddress: string | null;
+    fiscalCity: string | null;
+    showFooterTotals: boolean;
     styles: Record<string, unknown>;
     updatedAt: Date;
   }>;
@@ -212,6 +227,7 @@ export interface IStorage {
   resetTenantPdfSettings(tenantId: number): Promise<{
     id: number | null;
     tenantId: number;
+    documentType: string;
     templateKey: string;
     pageSize: string;
     orientation: string;
@@ -225,9 +241,20 @@ export interface IStorage {
     priceColumnLabel: string;
     currencySymbol: string;
     columns: string[];
+    invoiceColumns: string[];
+    documentTitle: string;
+    fiscalName: string | null;
+    fiscalCuit: string | null;
+    fiscalIibb: string | null;
+    fiscalAddress: string | null;
+    fiscalCity: string | null;
+    showFooterTotals: boolean;
     styles: Record<string, unknown>;
     updatedAt: Date;
   }>;
+
+  getTenantMonthlySummary(tenantId: number, year: number, month: number): Promise<TenantMonthlySummary | undefined>;
+  upsertTenantMonthlySummary(data: InsertTenantMonthlySummary): Promise<TenantMonthlySummary>;
 
   getProductStockByBranch(productId: number, tenantId: number): Promise<ProductStockByBranch[]>;
   getStockSummaryByTenant(tenantId: number): Promise<Array<{

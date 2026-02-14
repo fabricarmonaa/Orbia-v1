@@ -313,24 +313,14 @@ export default function BranchDetailPage() {
             </div>
           </div>
         </div>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="icon" data-testid="button-branch-actions">
-              <MoreVertical className="w-4 h-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => setActiveTab("users")}>
-              <Settings className="w-4 h-4 mr-2" />
-              Configurar
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => setShowDeleteBranch(true)} className="text-destructive">
-              <Trash2 className="w-4 h-4 mr-2" />
-              Eliminar sucursal
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <Button
+          variant="destructive"
+          onClick={() => setShowDeleteBranch(true)}
+          data-testid="button-delete-branch"
+        >
+          <Trash2 className="w-4 h-4 mr-2" />
+          Eliminar sucursal
+        </Button>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

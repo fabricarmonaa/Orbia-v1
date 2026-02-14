@@ -5,6 +5,7 @@ import { superAuth, hashPassword } from "../auth";
 import { profileUpload } from "./uploads";
 import { handleSingleUpload } from "../middleware/upload-guards";
 import { createRateLimiter } from "../middleware/rate-limit";
+import crypto from "crypto";
 
 const createTenantSchema = z.object({
   code: z.string().trim().min(2).max(40),
@@ -21,6 +22,27 @@ const createTenantSchema = z.object({
 const planUpdateSchema = z.object({
   planId: z.coerce.number().int().positive(),
 });
+
+const blockSchema = z.object({
+  blocked: z.boolean(),
+});
+
+const renameSchema = z.object({
+  name: z.string().trim().min(2).max(80),
+});
+
+const setPasswordSchema = z.object({
+  newPassword: z.string().min(6).max(128),
+});
+
+const deleteSchema = z.object({
+  confirmText: z.string().trim().min(2).max(200),
+});
+
+function generateTempPassword() {
+  const base = crypto.randomBytes(9).toString("base64").replace(/[^a-zA-Z0-9]/g, "");
+  return `${base}${crypto.randomInt(10, 99)}`;
+}
 
 export function registerSuperRoutes(app: Express) {
   const avatarUploadLimiter = createRateLimiter({
@@ -180,10 +202,125 @@ export function registerSuperRoutes(app: Express) {
   app.patch("/api/super/tenants/:tenantId/block", superAuth, async (req, res) => {
     try {
       const tenantId = parseInt(req.params.tenantId as string);
-      const { isActive } = req.body;
-      await storage.updateTenantActive(tenantId, isActive ?? false);
+      const { blocked } = blockSchema.parse(req.body);
+      await storage.updateTenantBlocked(tenantId, blocked);
+      await storage.createAuditLog({
+        tenantId,
+        userId: req.auth!.userId,
+        action: blocked ? "TENANT_BLOCKED" : "TENANT_UNBLOCKED",
+        entityType: "TENANT",
+        entityId: tenantId,
+        changes: { blocked },
+      });
       res.json({ ok: true });
     } catch (err: any) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ error: "Datos inválidos", details: err.errors });
+      }
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.patch("/api/super/tenants/:tenantId/rename", superAuth, async (req, res) => {
+    try {
+      const tenantId = parseInt(req.params.tenantId as string);
+      const { name } = renameSchema.parse(req.body);
+      await storage.updateTenantName(tenantId, name);
+      await storage.createAuditLog({
+        tenantId,
+        userId: req.auth!.userId,
+        action: "TENANT_RENAMED",
+        entityType: "TENANT",
+        entityId: tenantId,
+        changes: { name },
+      });
+      res.json({ ok: true });
+    } catch (err: any) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ error: "Datos inválidos", details: err.errors });
+      }
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/super/tenants/:tenantId/admin/reset-password", superAuth, async (req, res) => {
+    try {
+      const tenantId = parseInt(req.params.tenantId as string);
+      const admin = await storage.getPrimaryTenantAdmin(tenantId);
+      if (!admin) {
+        return res.status(404).json({ error: "No se encontró un admin principal" });
+      }
+      const tempPassword = generateTempPassword();
+      const hashedPassword = await hashPassword(tempPassword);
+      await storage.updateUser(admin.id, tenantId, { password: hashedPassword });
+      await storage.createAuditLog({
+        tenantId,
+        userId: req.auth!.userId,
+        action: "TENANT_ADMIN_PASSWORD_RESET",
+        entityType: "USER",
+        entityId: admin.id,
+        metadata: { adminEmail: admin.email },
+      });
+      res.json({ tempPassword });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/super/tenants/:tenantId/admin/set-password", superAuth, async (req, res) => {
+    try {
+      const tenantId = parseInt(req.params.tenantId as string);
+      const { newPassword } = setPasswordSchema.parse(req.body);
+      const admin = await storage.getPrimaryTenantAdmin(tenantId);
+      if (!admin) {
+        return res.status(404).json({ error: "No se encontró un admin principal" });
+      }
+      const hashedPassword = await hashPassword(newPassword);
+      await storage.updateUser(admin.id, tenantId, { password: hashedPassword });
+      await storage.createAuditLog({
+        tenantId,
+        userId: req.auth!.userId,
+        action: "TENANT_ADMIN_PASSWORD_SET",
+        entityType: "USER",
+        entityId: admin.id,
+        metadata: { adminEmail: admin.email },
+      });
+      res.json({ ok: true });
+    } catch (err: any) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ error: "Datos inválidos", details: err.errors });
+      }
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete("/api/super/tenants/:tenantId", superAuth, async (req, res) => {
+    try {
+      const tenantId = parseInt(req.params.tenantId as string);
+      const { confirmText } = deleteSchema.parse(req.body);
+      const tenant = await storage.getTenantById(tenantId);
+      if (!tenant) {
+        return res.status(404).json({ error: "Negocio no encontrado" });
+      }
+      const confirmValue = confirmText.trim().toLowerCase();
+      const valid = confirmValue === tenant.code.toLowerCase() || confirmValue === tenant.name.toLowerCase();
+      if (!valid) {
+        return res.status(400).json({ error: "Confirmación inválida" });
+      }
+      await storage.softDeleteTenant(tenantId);
+      await storage.createAuditLog({
+        tenantId,
+        userId: req.auth!.userId,
+        action: "TENANT_DELETED",
+        entityType: "TENANT",
+        entityId: tenantId,
+        metadata: { confirmText: tenant.code },
+      });
+      res.json({ ok: true });
+    } catch (err: any) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ error: "Datos inválidos", details: err.errors });
+      }
       res.status(500).json({ error: err.message });
     }
   });
