@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import { z } from "zod";
-import { tenantAuth, requireTenantAdmin } from "../auth";
+import { tenantAuth, requireTenantAdmin, getTenantPlan } from "../auth";
 import { storage } from "../storage";
 import { createRateLimiter } from "../middleware/rate-limit";
 import { DEFAULT_PDF_SETTINGS } from "../storage/pdf-settings";
@@ -69,17 +69,21 @@ function normalizeColumns(columns?: string[]) {
   return unique.filter((col) => allowedColumns.includes(col as any));
 }
 
+function isEconomicPlan(planCode?: string | null) {
+  return (planCode || "").toUpperCase() === "ECONOMICO";
+}
+
 function normalizeInvoiceColumns(columns?: string[]) {
   if (!columns?.length) return DEFAULT_PDF_SETTINGS.invoiceColumns;
   const unique = Array.from(new Set(columns));
   return unique.filter((col) => allowedInvoiceColumns.includes(col as any));
 }
 
-async function generatePdfByType(tenantId: number, documentType: string) {
+async function generatePdfByType(tenantId: number, documentType: string, planCode?: string | null) {
   if (documentType === "INVOICE_B") {
     return generateInvoiceBPdf(tenantId);
   }
-  return generatePriceListPdf(tenantId);
+  return generatePriceListPdf(tenantId, { watermarkOrbia: isEconomicPlan(planCode) });
 }
 
 async function resolvePriceListProducts(tenantId: number, body: z.infer<typeof exportBodySchema>) {
@@ -174,7 +178,8 @@ export function registerPdfRoutes(app: Express) {
   app.post("/api/pdfs/preview", tenantAuth, previewLimiter, async (req, res) => {
     try {
       const documentType = req.body?.documentType || (await storage.getTenantPdfSettings(req.auth!.tenantId!)).documentType;
-      const pdfBuffer = await generatePdfByType(req.auth!.tenantId!, documentType);
+      const plan = await getTenantPlan(req.auth!.tenantId!);
+      const pdfBuffer = await generatePdfByType(req.auth!.tenantId!, documentType, plan?.planCode);
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", "inline; filename=documento.pdf");
       res.send(pdfBuffer);
@@ -186,7 +191,8 @@ export function registerPdfRoutes(app: Express) {
   app.get("/api/pdfs/download", tenantAuth, previewLimiter, async (req, res) => {
     try {
       const documentType = req.query.documentType ? String(req.query.documentType) : (await storage.getTenantPdfSettings(req.auth!.tenantId!)).documentType;
-      const pdfBuffer = await generatePdfByType(req.auth!.tenantId!, documentType);
+      const plan = await getTenantPlan(req.auth!.tenantId!);
+      const pdfBuffer = await generatePdfByType(req.auth!.tenantId!, documentType, plan?.planCode);
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", "attachment; filename=documento.pdf");
       res.send(pdfBuffer);
@@ -199,7 +205,8 @@ export function registerPdfRoutes(app: Express) {
     try {
       const payload = exportBodySchema.parse(req.body || {});
       const { data, hasBranches } = await resolvePriceListProducts(req.auth!.tenantId!, payload);
-      const pdfBuffer = await generatePriceListPdf(req.auth!.tenantId!, { products: data, hasBranches });
+      const plan = await getTenantPlan(req.auth!.tenantId!);
+      const pdfBuffer = await generatePriceListPdf(req.auth!.tenantId!, { products: data, hasBranches, watermarkOrbia: isEconomicPlan(plan?.planCode) });
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", "inline; filename=lista-precios.pdf");
       res.send(pdfBuffer);
@@ -215,7 +222,8 @@ export function registerPdfRoutes(app: Express) {
     try {
       const payload = exportBodySchema.parse(req.body || {});
       const { data, hasBranches } = await resolvePriceListProducts(req.auth!.tenantId!, payload);
-      const pdfBuffer = await generatePriceListPdf(req.auth!.tenantId!, { products: data, hasBranches });
+      const plan = await getTenantPlan(req.auth!.tenantId!);
+      const pdfBuffer = await generatePriceListPdf(req.auth!.tenantId!, { products: data, hasBranches, watermarkOrbia: isEconomicPlan(plan?.planCode) });
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", "attachment; filename=lista-precios.pdf");
       res.send(pdfBuffer);

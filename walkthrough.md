@@ -61,3 +61,9 @@
 - [ ] Probar `minPrice`/`maxPrice` vacíos y `stock=low&lowStockThreshold=5`.
 - [ ] Confirmar 200 con payload `{ data, meta }` cuando parámetros son válidos.
 - [ ] Confirmar 400 (no 500) con `{ error, code }` cuando un parámetro es inválido.
+
+
+## PDFs por plan (watermark)
+- [ ] Tenant con plan **ECONOMICO**: exportar lista PDF y verificar watermark ORBIA en esquina inferior izquierda.
+- [ ] Tenant con plan **PROFESIONAL** o **ESCALA**: exportar lista PDF y verificar que NO aparece watermark ORBIA.
+- [ ] Verificar que el watermark no tapa contenido (tamaño pequeño y baja opacidad).

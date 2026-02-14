@@ -7,6 +7,7 @@ import {
   enforceBranchScope,
   blockBranchScope,
   requireTenantAdmin,
+  getTenantPlan,
 } from "../auth";
 import { queryProductsByFilters, productFiltersSchema } from "../services/product-filters";
 import { generatePriceListPdf } from "../services/pdf/price-list";
@@ -305,7 +306,8 @@ export function registerProductRoutes(app: Express) {
   app.get("/api/products/export", tenantAuth, requireFeature("products"), async (req, res) => {
     try {
       const tenantId = req.auth!.tenantId!;
-      const pdfBuffer = await generatePriceListPdf(tenantId);
+      const plan = await getTenantPlan(tenantId);
+      const pdfBuffer = await generatePriceListPdf(tenantId, { watermarkOrbia: (plan?.planCode || "").toUpperCase() === "ECONOMICO" });
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", "attachment; filename=productos.pdf");
       res.send(pdfBuffer);

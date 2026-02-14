@@ -32,6 +32,25 @@ function parseLocalFile(logoUrl?: string | null) {
   return null;
 }
 
+
+
+function drawEconomicWatermark(doc: any, appLogoPath: string | null) {
+  const watermarkY = doc.page.height - doc.page.margins.bottom - 36;
+  const watermarkX = doc.page.margins.left;
+
+  doc.save();
+  try {
+    if (appLogoPath) {
+      doc.opacity(0.16);
+      doc.image(appLogoPath, watermarkX, watermarkY, { fit: [76, 22], align: "left", valign: "bottom" });
+    } else {
+      doc.opacity(0.18).fontSize(10).fillColor("#6b7280").text("ORBIA", watermarkX, watermarkY + 8);
+    }
+  } catch {
+    doc.opacity(0.18).fontSize(10).fillColor("#6b7280").text("ORBIA", watermarkX, watermarkY + 8);
+  }
+  doc.restore();
+}
 function resolveColumns(settings: { columns: string[]; showSku: boolean; showDescription: boolean; showBranchStock: boolean }) {
   const unique = Array.from(new Set(settings.columns));
   const filtered = unique.filter((col) => ALLOWED_COLUMNS.includes(col as ColumnKey));
@@ -55,12 +74,13 @@ function formatBranchStock(entries: Array<{ branchName: string; stock: number }>
 
 export async function generatePriceListPdf(
   tenantId: number,
-  options?: { products?: PriceListProduct[]; hasBranches?: boolean }
+  options?: { products?: PriceListProduct[]; hasBranches?: boolean; watermarkOrbia?: boolean }
 ) {
   const settings = await storage.getTenantPdfSettings(tenantId);
   const branding = await storage.getTenantBranding(tenantId);
   const appBranding = await storage.getAppBranding();
 
+  const appLogoPath = parseLocalFile(appBranding.orbiaLogoUrl);
   const logoPath = settings.showLogo
     ? parseLocalFile(branding.logoUrl || appBranding.orbiaLogoUrl)
     : null;
@@ -208,6 +228,10 @@ export async function generatePriceListPdf(
       x += columnWidths[idx];
     });
     cursorY += styles.rowHeight;
+  }
+
+  if (options?.watermarkOrbia) {
+    drawEconomicWatermark(doc, appLogoPath);
   }
 
   if (footerText) {
