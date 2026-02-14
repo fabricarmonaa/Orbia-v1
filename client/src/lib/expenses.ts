@@ -7,6 +7,8 @@ export interface ExpenseDefinitionPayload {
   name: string;
   description?: string | null;
   category?: string | null;
+  defaultAmount?: number | null;
+  currency?: string | null;
   isActive?: boolean;
 }
 

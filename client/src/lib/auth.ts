@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useSyncExternalStore } from "react";
+import { parseApiError } from "@/lib/api-errors";
 
 export interface AuthUser {
   id: number;
@@ -116,8 +117,8 @@ export async function apiRequest(method: string, url: string, data?: unknown): P
     body: data ? JSON.stringify(data) : undefined,
   });
   if (!res.ok) {
-    const text = (await res.text()) || res.statusText;
-    throw new Error(`${res.status}: ${text}`);
+    const info = await parseApiError(res);
+    throw new Error(info.message);
   }
   return res;
 }

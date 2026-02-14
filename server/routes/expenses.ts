@@ -3,15 +3,23 @@ import { z } from "zod";
 import { storage } from "../storage";
 import { tenantAuth, blockBranchScope, requireFeature, requireTenantAdmin } from "../auth";
 
-const expenseDefinitionSchema = z.object({
+const baseExpenseDefinitionSchema = z.object({
     type: z.enum(["FIXED", "VARIABLE"]),
     name: z.string().trim().min(2).max(80),
     description: z.string().trim().max(200).optional().nullable(),
     category: z.string().trim().max(100).optional().nullable(),
+    defaultAmount: z.coerce.number().positive().optional(),
+    currency: z.string().trim().max(10).optional().nullable(),
     isActive: z.boolean().optional(),
 });
 
-const expenseDefinitionUpdateSchema = expenseDefinitionSchema.partial();
+const expenseDefinitionSchema = baseExpenseDefinitionSchema.superRefine((data, ctx) => {
+    if (data.type === "FIXED" && (!data.defaultAmount || data.defaultAmount <= 0)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "defaultAmount requerido para gastos fijos", path: ["defaultAmount"] });
+    }
+});
+
+const expenseDefinitionUpdateSchema = baseExpenseDefinitionSchema.partial();
 
 export function registerExpenseRoutes(app: Express) {
     // ============================================
@@ -63,6 +71,8 @@ export function registerExpenseRoutes(app: Express) {
                     name: payload.name,
                     description: payload.description || null,
                     category: payload.category || null,
+                    defaultAmount: payload.defaultAmount ? String(payload.defaultAmount) : null,
+                    currency: payload.currency || null,
                     isActive: payload.isActive ?? true,
                 });
                 res.status(201).json({ data });
@@ -93,6 +103,8 @@ export function registerExpenseRoutes(app: Express) {
                         name: payload.name,
                         description: payload.description ?? undefined,
                         category: payload.category ?? undefined,
+                        defaultAmount: payload.defaultAmount !== undefined ? String(payload.defaultAmount) : undefined,
+                        currency: payload.currency ?? undefined,
                         isActive: payload.isActive,
                     }
                 );

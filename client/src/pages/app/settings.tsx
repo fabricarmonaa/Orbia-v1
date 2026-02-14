@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { apiRequest, useAuth, getToken } from "@/lib/auth";
+import { parseApiError } from "@/lib/api-errors";
 import { usePlan } from "@/lib/plan";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -181,8 +182,8 @@ export default function SettingsPage() {
         body: formData,
       });
       if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || res.statusText);
+        const info = await parseApiError(res, { maxUploadBytes: 5242880 });
+        throw new Error(info.message);
       }
       const data = await res.json();
       if (data.url) {
@@ -259,41 +260,41 @@ export default function SettingsPage() {
     },
     ...(isAdmin
       ? [
-          {
-            id: "billing",
-            label: "Plan y Suscripción",
-            content: <BillingSettings plan={plan} />,
-          },
-          {
-            id: "branding",
-            label: "Personalización",
-            content: (
-              <BrandingSettings
-                config={config}
-                setConfig={setConfig}
-                saveConfig={saveConfig}
-                savingConfig={saving}
-                minTrackingHours={minTrackingHours}
-                maxTrackingHours={maxTrackingHours}
-                brandingForm={brandingForm}
-                setBrandingForm={setBrandingForm}
-                brandingSaving={brandingSaving}
-                brandingUploading={brandingUploading}
-                tenantLogoInputRef={tenantLogoInputRef}
-                handleTenantLogoUpload={handleTenantLogoUpload}
-                saveBranding={saveBranding}
-                resetBranding={resetBranding}
-                previewOrder={previewOrder}
-                layoutPresets={layoutPresets}
-              />
-            ),
-          },
-          {
-            id: "pdfs",
-            label: "PDFs",
-            content: <PriceListPdfSettings />,
-          },
-        ]
+        {
+          id: "billing",
+          label: "Plan y Suscripción",
+          content: <BillingSettings plan={plan} />,
+        },
+        {
+          id: "branding",
+          label: "Personalización",
+          content: (
+            <BrandingSettings
+              config={config}
+              setConfig={setConfig}
+              saveConfig={saveConfig}
+              savingConfig={saving}
+              minTrackingHours={minTrackingHours}
+              maxTrackingHours={maxTrackingHours}
+              brandingForm={brandingForm}
+              setBrandingForm={setBrandingForm}
+              brandingSaving={brandingSaving}
+              brandingUploading={brandingUploading}
+              tenantLogoInputRef={tenantLogoInputRef}
+              handleTenantLogoUpload={handleTenantLogoUpload}
+              saveBranding={saveBranding}
+              resetBranding={resetBranding}
+              previewOrder={previewOrder}
+              layoutPresets={layoutPresets}
+            />
+          ),
+        },
+        {
+          id: "pdfs",
+          label: "PDFs",
+          content: <PriceListPdfSettings />,
+        },
+      ]
       : []),
     {
       id: "operations",
@@ -302,12 +303,12 @@ export default function SettingsPage() {
     },
     ...(isAdmin
       ? [
-          {
-            id: "advanced",
-            label: "Avanzado",
-            content: <AdvancedSettings />,
-          },
-        ]
+        {
+          id: "advanced",
+          label: "Avanzado",
+          content: <AdvancedSettings />,
+        },
+      ]
       : []),
   ];
 

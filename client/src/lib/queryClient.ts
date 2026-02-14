@@ -1,9 +1,10 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
+import { parseApiError } from "@/lib/api-errors";
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
-    const text = (await res.text()) || res.statusText;
-    throw new Error(`${res.status}: ${text}`);
+    const info = await parseApiError(res);
+    throw new Error(info.message);
   }
 }
 

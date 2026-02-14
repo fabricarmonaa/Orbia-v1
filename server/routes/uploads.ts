@@ -10,9 +10,11 @@ const deliveryUploadDir = resolveUploadDir("delivery");
 const tenantLogoDir = resolveUploadDir("tenant-logos");
 const appLogoDir = resolveUploadDir("app");
 
+const TENANT_LOGO_MAX_BYTES = parseInt(process.env.TENANT_LOGO_MAX_BYTES || "5242880", 10);
+
 export const profileUpload = createImageUpload("profiles", "default");
 export const deliveryUpload = createImageUpload("delivery", "default");
-export const tenantLogoUpload = createImageUpload("tenant-logos", "logo");
+export const tenantLogoUpload = createImageUpload("tenant-logos", "logo", TENANT_LOGO_MAX_BYTES);
 export const appLogoUpload = createImageUpload("app", "logo");
 
 const uploadLimiter = createRateLimiter({

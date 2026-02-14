@@ -6,6 +6,7 @@ import type { Request, Response, NextFunction } from "express";
 
 const DEFAULT_MAX_UPLOAD_BYTES = parseInt(process.env.MAX_UPLOAD_BYTES || "2000000", 10);
 const DEFAULT_LOGO_UPLOAD_BYTES = parseInt(process.env.MAX_LOGO_UPLOAD_BYTES || "1000000", 10);
+const TENANT_LOGO_MAX_BYTES = parseInt(process.env.TENANT_LOGO_MAX_BYTES || "5242880", 10); // 5MB default
 
 const MIME_EXTENSION_MAP: Record<string, string> = {
   "image/png": ".png",
@@ -35,13 +36,14 @@ export function resolveUploadDir(dir: UploadDirectory) {
   return uploadDir;
 }
 
-export function resolveUploadMaxBytes(kind: "default" | "logo") {
+export function resolveUploadMaxBytes(kind: "default" | "logo", maxBytes?: number) {
+  if (maxBytes) return maxBytes;
   return kind === "logo" ? DEFAULT_LOGO_UPLOAD_BYTES : DEFAULT_MAX_UPLOAD_BYTES;
 }
 
 function validateFileMeta(file: Express.Multer.File) {
   const ext = path.extname(file.originalname).toLowerCase();
-  if (file.originalname.includes("..") || /[\\/]/.test(file.originalname)) {
+  if (file.originalname.includes("..") || /[\\\/]/.test(file.originalname)) {
     throw new UploadValidationError("Nombre de archivo inválido", 415, "UPLOAD_INVALID_NAME");
   }
   if (!ALLOWED_EXTENSIONS.has(ext)) {
@@ -57,7 +59,7 @@ function validateFileMeta(file: Express.Multer.File) {
   return mappedExt;
 }
 
-export function createImageUpload(dir: UploadDirectory, kind: "default" | "logo") {
+export function createImageUpload(dir: UploadDirectory, kind: "default" | "logo", maxBytes?: number) {
   const uploadDir = resolveUploadDir(dir);
   return multer({
     storage: multer.diskStorage({
@@ -72,7 +74,7 @@ export function createImageUpload(dir: UploadDirectory, kind: "default" | "logo"
         }
       },
     }),
-    limits: { fileSize: resolveUploadMaxBytes(kind) },
+    limits: { fileSize: resolveUploadMaxBytes(kind, maxBytes) },
     fileFilter: (_req, file, cb) => {
       try {
         validateFileMeta(file);
