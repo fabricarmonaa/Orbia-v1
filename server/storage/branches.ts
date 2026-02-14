@@ -28,4 +28,12 @@ export const branchStorage = {
       .returning();
     return branch;
   },
+  async countByTenant(tenantId: number) {
+    const { count } = await import("drizzle-orm");
+    const [result] = await db
+      .select({ count: count() })
+      .from(branches)
+      .where(and(eq(branches.tenantId, tenantId), isNull(branches.deletedAt)));
+    return result?.count || 0;
+  },
 };

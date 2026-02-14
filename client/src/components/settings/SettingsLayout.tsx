@@ -12,7 +12,7 @@ export function SettingsLayout({ sections }: { sections: SettingsSection[] }) {
 
   return (
     <Tabs defaultValue={defaultValue} className="flex flex-col lg:flex-row gap-6">
-      <TabsList className="flex lg:flex-col h-auto w-full lg:w-56 bg-transparent p-0 gap-2">
+      <TabsList className="flex lg:flex-col h-auto w-full lg:w-56 lg:sticky lg:top-4 lg:self-start bg-transparent p-0 gap-2">
         {sections.map((section) => (
           <TabsTrigger
             key={section.id}

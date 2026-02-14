@@ -57,6 +57,22 @@ export function registerTenantRoutes(app: Express) {
     }
   });
 
+  app.get("/api/tenant/info", tenantAuth, async (req, res) => {
+    try {
+      const tenant = await storage.getTenantById(req.auth!.tenantId!);
+      if (!tenant) return res.status(404).json({ error: "Tenant no encontrado" });
+      res.json({
+        data: {
+          code: tenant.code,
+          subscriptionEndDate: tenant.subscriptionEndDate,
+        },
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+
   app.get("/api/config", tenantAuth, async (req, res) => {
     try {
       const config = await storage.getConfig(req.auth!.tenantId!);
@@ -156,7 +172,7 @@ export function registerTenantRoutes(app: Express) {
       } catch (err: any) {
         res.status(500).json({ error: err.message });
       }
-  });
+    });
 
   app.get("/api/subscription/status", tenantAuth, async (req, res) => {
     try {

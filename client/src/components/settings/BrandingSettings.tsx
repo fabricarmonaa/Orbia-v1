@@ -282,7 +282,7 @@ export function BrandingSettings({
               </div>
               <div className="space-y-2">
                 <Label>Texto footer tracking</Label>
-                <Input
+                <Textarea
                   value={brandingForm.texts.trackingFooter}
                   onChange={(e) =>
                     setBrandingForm({
@@ -290,6 +290,8 @@ export function BrandingSettings({
                       texts: { ...brandingForm.texts, trackingFooter: e.target.value },
                     })
                   }
+                  rows={3}
+                  className="resize-y"
                 />
               </div>
             </div>
@@ -386,9 +388,8 @@ export function BrandingSettings({
                       key={preset.value}
                       type="button"
                       onClick={() => setConfig({ ...config, trackingLayout: preset.value })}
-                      className={`rounded-md border p-3 text-center transition-colors ${
-                        isSelected ? "border-primary bg-primary/5" : "border-border"
-                      }`}
+                      className={`rounded-md border p-3 text-center transition-colors ${isSelected ? "border-primary bg-primary/5" : "border-border"
+                        }`}
                     >
                       <preset.Icon
                         className="w-6 h-6 mx-auto mb-1.5"

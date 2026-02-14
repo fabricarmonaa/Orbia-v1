@@ -1,6 +1,7 @@
 import path from "path";
 import fs from "fs";
 import { storage } from "../../storage";
+import { drawBox, drawDottedLine, fitImage, drawCheckbox, drawBarcode, drawLabelValue } from "./layout-helpers";
 
 const ALLOWED_COLUMNS = ["code", "quantity", "product", "price", "discount", "total"] as const;
 type InvoiceColumnKey = (typeof ALLOWED_COLUMNS)[number];
@@ -35,10 +36,10 @@ export async function generateInvoiceBPdf(tenantId: number) {
   const logoPath = settings.showLogo
     ? parseLocalFile(branding.logoUrl || appBranding.orbiaLogoUrl)
     : null;
-  const primaryColor = (branding.colors as any)?.primary || "#2563eb";
 
-  const items = (products.length ? products.slice(0, 8) : [
-    { id: 0, name: "Producto ejemplo", sku: "SKU-001", price: 1200 },
+  const items = (products.length ? products.slice(0, 50) : [
+    { id: 0, name: "Producto ejemplo 1", sku: "SKU-001", price: 1200 },
+    { id: 1, name: "Producto ejemplo 2", sku: "SKU-002", price: 850 },
   ]).map((product, index) => {
     const qty = 1 + (index % 3);
     const price = Number(product.price || 0);
@@ -55,142 +56,27 @@ export async function generateInvoiceBPdf(tenantId: number) {
   });
 
   const columns = resolveColumns(settings.invoiceColumns);
-  const styles = settings.styles as {
-    fontSize: number;
-    headerSize: number;
-    subheaderSize: number;
-    tableHeaderSize: number;
-    rowHeight: number;
-  };
+  const showDiscount = columns.includes("discount");
 
   const PDFDocument = (await import("pdfkit")).default;
   const doc = new PDFDocument({
-    size: settings.pageSize as any,
-    margin: 40,
-    layout: settings.orientation === "landscape" ? "landscape" : "portrait",
+    size: "A4",
+    margin: 0,
+    layout: "portrait",
   });
 
   const chunks: Buffer[] = [];
   doc.on("data", (chunk) => chunks.push(chunk));
 
-  const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
-  const headerTitle = sanitizeText(settings.documentTitle || "Factura B", 80);
-  const businessName = sanitizeText(branding.displayName || "Negocio", 80);
-  const subheader = sanitizeText(settings.subheaderText || "", 120);
-  const footerText = sanitizeText(settings.footerText || "", 160);
-
-  doc.rect(doc.page.margins.left, doc.page.margins.top - 10, pageWidth, 48).fill(primaryColor);
-  doc.fillColor("#ffffff").fontSize(styles.headerSize).text(businessName, doc.page.margins.left + 12, doc.page.margins.top + 4);
-  doc.fontSize(styles.subheaderSize).text(headerTitle, doc.page.margins.left + 12, doc.page.margins.top + 24);
-  doc.fillColor("#000000");
-
-  if (logoPath) {
-    try {
-      doc.image(logoPath, doc.page.width - doc.page.margins.right - 60, doc.page.margins.top - 6, { width: 50, height: 50 });
-    } catch {
-      // ignore invalid logo
-    }
-  }
-
-  let cursorY = doc.page.margins.top + 60;
-
-  doc.fontSize(10).fillColor("#111111");
-  doc.text(`Fecha: ${new Date().toLocaleDateString("es-AR")}`, doc.page.margins.left, cursorY);
-  cursorY += 18;
-
-  const fiscalLines = [
-    settings.fiscalName ? `Razón social: ${settings.fiscalName}` : null,
-    settings.fiscalCuit ? `CUIT: ${settings.fiscalCuit}` : null,
-    settings.fiscalIibb ? `IIBB: ${settings.fiscalIibb}` : null,
-    settings.fiscalAddress ? `Domicilio: ${settings.fiscalAddress}` : null,
-    settings.fiscalCity ? `Ciudad: ${settings.fiscalCity}` : null,
-  ].filter(Boolean) as string[];
-
-  fiscalLines.forEach((line) => {
-    doc.text(line, doc.page.margins.left, cursorY);
-    cursorY += 14;
+  // Draw first page
+  drawInvoicePage(doc, {
+    settings,
+    branding,
+    logoPath,
+    items,
+    showDiscount,
+    isFirstPage: true,
   });
-
-  if (subheader) {
-    cursorY += 6;
-    doc.fontSize(9).fillColor("#444444").text(subheader, doc.page.margins.left, cursorY);
-    cursorY += 18;
-  }
-
-  const columnWeights: Record<InvoiceColumnKey, number> = {
-    code: 1,
-    quantity: 0.8,
-    product: 3,
-    price: 1.2,
-    discount: 1,
-    total: 1.2,
-  };
-
-  const totalWeight = columns.reduce((sum, col) => sum + columnWeights[col], 0);
-  const columnWidths = columns.map((col) => (pageWidth * columnWeights[col]) / totalWeight);
-
-  doc.fontSize(styles.tableHeaderSize).fillColor("#111111");
-  let x = doc.page.margins.left;
-  const columnLabels: Record<InvoiceColumnKey, string> = {
-    code: "Código",
-    quantity: "Cant",
-    product: "Producto",
-    price: "Precio",
-    discount: "Bonif",
-    total: "Importe",
-  };
-  columns.forEach((col, idx) => {
-    doc.text(columnLabels[col], x + 4, cursorY, { width: columnWidths[idx] - 8, align: "left" });
-    x += columnWidths[idx];
-  });
-  cursorY += styles.rowHeight;
-  doc.moveTo(doc.page.margins.left, cursorY - 4).lineTo(doc.page.width - doc.page.margins.right, cursorY - 4).strokeColor(primaryColor).lineWidth(1).stroke();
-
-  doc.fontSize(styles.fontSize).fillColor("#111111");
-  let totalAmount = 0;
-
-  for (const item of items) {
-    if (cursorY + styles.rowHeight > doc.page.height - doc.page.margins.bottom - 50) {
-      doc.addPage();
-      cursorY = doc.page.margins.top;
-    }
-    x = doc.page.margins.left;
-    totalAmount += item.total;
-    const rowValues: Record<InvoiceColumnKey, string> = {
-      code: item.code,
-      quantity: item.quantity.toString(),
-      product: item.product,
-      price: `${settings.currencySymbol}${item.price.toFixed(2)}`,
-      discount: `${settings.currencySymbol}${item.discount.toFixed(2)}`,
-      total: `${settings.currencySymbol}${item.total.toFixed(2)}`,
-    };
-    columns.forEach((col, idx) => {
-      doc.text(rowValues[col], x + 4, cursorY, {
-        width: columnWidths[idx] - 8,
-        height: styles.rowHeight,
-        ellipsis: true,
-      });
-      x += columnWidths[idx];
-    });
-    cursorY += styles.rowHeight;
-  }
-
-  if (settings.showFooterTotals) {
-    cursorY += 10;
-    doc.fontSize(11).fillColor("#111111");
-    doc.text(`TOTAL: ${settings.currencySymbol}${totalAmount.toFixed(2)}`, doc.page.margins.left, cursorY, {
-      align: "right",
-      width: pageWidth,
-    });
-  }
-
-  if (footerText) {
-    doc.fontSize(9).fillColor("#666666");
-    doc.text(footerText, doc.page.margins.left, doc.page.height - doc.page.margins.bottom - 20, {
-      width: pageWidth,
-      align: "center",
-    });
-  }
 
   doc.end();
 
@@ -198,5 +84,214 @@ export async function generateInvoiceBPdf(tenantId: number) {
     doc.on("end", () => {
       resolve(Buffer.concat(chunks));
     });
+  });
+}
+
+interface InvoicePageOptions {
+  settings: any;
+  branding: any;
+  logoPath: string | null;
+  items: any[];
+  showDiscount: boolean;
+  isFirstPage: boolean;
+}
+
+function drawInvoicePage(doc: PDFKit.PDFDocument, opts: InvoicePageOptions) {
+  const { settings, branding, logoPath, items, showDiscount, isFirstPage } = opts;
+
+  // A. Outer border
+  drawBox(doc, 30, 30, 535, 780, { lineWidth: 1.5, cornerRadius: 5 });
+
+  // Horizontal separators
+  doc.moveTo(30, 155).lineTo(565, 155).lineWidth(2).stroke(); // After header
+  doc.moveTo(30, 205).lineTo(565, 205).lineWidth(1).stroke(); // After client
+  doc.moveTo(30, 265).lineTo(565, 265).lineWidth(2).stroke(); // Before table
+  doc.moveTo(30, 725).lineTo(565, 725).lineWidth(2).stroke(); // Before footer
+
+  // B. Header (3 sections)
+  drawHeader(doc, settings, branding, logoPath);
+
+  // C. Client data
+  drawClientData(doc);
+
+  // D. Sales conditions
+  drawSalesConditions(doc);
+
+  // E. Items table
+  const { cursorY, totalAmount } = drawItemsTable(doc, items, settings, 270, showDiscount);
+
+  // F. Footer
+  drawFooter(doc, totalAmount, settings);
+}
+
+function drawHeader(doc: PDFKit.PDFDocument, settings: any, branding: any, logoPath: string | null) {
+  // B1: Logo + Issuer (left)
+  if (logoPath) {
+    fitImage(doc, logoPath, 45, 45, 140, 55);
+  }
+
+  doc.fontSize(10).fillColor("#111111").font("Helvetica-Bold");
+  const businessName = sanitizeText(settings.fiscalName || branding.displayName || "Negocio", 80);
+  doc.text(businessName, 45, 105, { width: 170 });
+
+  doc.fontSize(8).font("Helvetica");
+  if (settings.fiscalAddress) {
+    doc.text(sanitizeText(settings.fiscalAddress, 60), 45, 118, { width: 170 });
+  }
+  if (settings.fiscalCity) {
+    doc.text(sanitizeText(settings.fiscalCity, 40), 45, 128, { width: 170 });
+  }
+  doc.text("I.V.A. RESPONSABLE INSCRIPTO", 45, 138, { width: 170 });
+
+  // B2: "B" Box (center)
+  drawBox(doc, 230, 40, 135, 110, { lineWidth: 2 });
+  doc.fontSize(48).font("Helvetica-Bold").text("B", 230, 55, {
+    width: 135,
+    align: "center",
+  });
+  doc.fontSize(10).font("Helvetica").text("Código N° 06", 230, 120, {
+    width: 135,
+    align: "center",
+  });
+
+  // B3: FACTURA + Fiscal (right)
+  doc.fontSize(20).font("Helvetica-Bold").text("FACTURA", 375, 45, { width: 180 });
+
+  // Date box
+  const now = new Date();
+  const day = now.getDate();
+  const month = now.getMonth() + 1;
+  const year = now.getFullYear();
+
+  drawBox(doc, 375, 70, 180, 20);
+  doc.fontSize(9).font("Helvetica");
+  doc.text(`Día: ${day}`, 380, 74);
+  doc.text(`Mes: ${month}`, 440, 74);
+  doc.text(`Año: ${year}`, 500, 74);
+
+  // Fiscal data mini boxes
+  doc.fontSize(8);
+  doc.text(`C.U.I.T: ${settings.fiscalCuit || "—"}`, 375, 95, { width: 180 });
+  doc.text(`Ing. Brutos: ${settings.fiscalIibb || "—"}`, 375, 107, { width: 180 });
+  doc.text(`Inicio Act.: —`, 375, 119, { width: 180 });
+}
+
+function drawClientData(doc: PDFKit.PDFDocument) {
+  doc.fontSize(9).fillColor("#111111").font("Helvetica");
+  drawLabelValue(doc, 45, 165, "Señor(es):", "", 500, true);
+  drawLabelValue(doc, 45, 185, "Dirección:", "", 280, true);
+  doc.text("Loc.:", 340, 185);
+  drawDottedLine(doc, 370, 192, 555, 192);
+}
+
+function drawSalesConditions(doc: PDFKit.PDFDocument) {
+  doc.fontSize(9).fillColor("#111111").font("Helvetica");
+
+  // Line 1: Payment conditions
+  doc.text("Condiciones de Venta:", 45, 215);
+  doc.text("Contado", 160, 215);
+  drawCheckbox(doc, 200, 214, 10);
+  doc.text("Cta. Cte.", 220, 215);
+  drawCheckbox(doc, 270, 214, 10);
+
+  // Line 2: IVA checkboxes
+  doc.text("I.V.A:", 45, 232);
+  const ivaOptions = ["Exento", "No Resp.", "Cons. Final", "Resp. Monot."];
+  ivaOptions.forEach((label, i) => {
+    const x = 90 + i * 105;
+    doc.text(label, x, 232);
+    drawCheckbox(doc, x + doc.widthOfString(label) + 5, 231, 10);
+  });
+
+  // Line 3: CUIT and REMITO
+  doc.text("C.U.I.T:", 45, 248);
+  drawDottedLine(doc, 85, 255, 200, 255);
+
+  doc.text("REMITO N°:", 250, 248);
+  drawDottedLine(doc, 310, 255, 555, 255);
+}
+
+function drawItemsTable(
+  doc: PDFKit.PDFDocument,
+  items: any[],
+  settings: any,
+  startY: number,
+  showDiscount: boolean
+) {
+  let cursorY = startY;
+
+  // Table header
+  drawTableHeader(doc, cursorY, showDiscount);
+  cursorY += 20;
+
+  let totalAmount = 0;
+
+  for (const item of items) {
+    // Check pagination
+    if (cursorY > 710) {
+      doc.addPage({ size: "A4", margin: 0 });
+      cursorY = 40;
+      drawTableHeader(doc, cursorY, showDiscount);
+      cursorY += 20;
+    }
+
+    // Draw item row
+    doc.fontSize(9).fillColor("#111111").font("Helvetica");
+
+    doc.text(item.quantity.toString(), 50, cursorY, { width: 50, align: "center" });
+    doc.text(item.product, 110, cursorY, { width: 260, ellipsis: true });
+
+    if (showDiscount) {
+      doc.text(`${settings.currencySymbol}${item.price.toFixed(2)}`, 380, cursorY, { width: 70, align: "right" });
+      doc.text(`${settings.currencySymbol}${item.discount.toFixed(2)}`, 460, cursorY, { width: 50, align: "right" });
+      doc.text(`${settings.currencySymbol}${item.total.toFixed(2)}`, 520, cursorY, { width: 35, align: "right" });
+    } else {
+      doc.text(`${settings.currencySymbol}${item.price.toFixed(2)}`, 380, cursorY, { width: 80, align: "right" });
+      doc.text(`${settings.currencySymbol}${item.total.toFixed(2)}`, 470, cursorY, { width: 85, align: "right" });
+    }
+
+    cursorY += 18;
+    drawDottedLine(doc, 40, cursorY - 2, 555, cursorY - 2);
+    totalAmount += item.total;
+  }
+
+  return { cursorY, totalAmount };
+}
+
+function drawTableHeader(doc: PDFKit.PDFDocument, y: number, showDiscount: boolean) {
+  doc.fontSize(10).font("Helvetica-Bold").fillColor("#111111");
+
+  doc.text("Cantidad", 50, y, { width: 50, align: "center" });
+  doc.text("DESCRIPCION", 110, y);
+
+  if (showDiscount) {
+    doc.text("Precio Unit.", 380, y, { width: 70, align: "right" });
+    doc.text("Bonif", 460, y, { width: 50, align: "right" });
+    doc.text("IMPORTE", 520, y, { width: 35, align: "right" });
+  } else {
+    doc.text("Precio Unitario", 380, y, { width: 80, align: "right" });
+    doc.text("IMPORTE", 470, y, { width: 85, align: "right" });
+  }
+
+  doc.font("Helvetica");
+  doc.moveTo(40, y + 15).lineTo(555, y + 15).lineWidth(1.5).stroke();
+}
+
+function drawFooter(doc: PDFKit.PDFDocument, totalAmount: number, settings: any) {
+  // Left: barcode
+  doc.fontSize(7).fillColor("#111111").font("Helvetica");
+  doc.text("ORIGINAL BLANCO / DUPLICADO COLOR", 45, 740);
+  doc.fontSize(6);
+  doc.text('"147 teléfono Gratuito C.A.B.A., Área de Defensa y Protección al Consumidor C.A.B.A."', 45, 795, {
+    width: 320,
+  });
+  drawBarcode(doc, 45, 755, 120, 35);
+
+  // Right: TOTAL box
+  drawBox(doc, 420, 735, 135, 60, { lineWidth: 2 });
+  doc.fontSize(14).font("Helvetica-Bold").text("TOTAL $", 430, 745);
+  doc.fontSize(18).text(`${settings.currencySymbol}${totalAmount.toFixed(2)}`, 430, 765, {
+    align: "right",
+    width: 115,
   });
 }

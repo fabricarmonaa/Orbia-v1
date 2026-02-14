@@ -62,6 +62,17 @@ export const stockStorage = {
       .where(and(eq(stockMovements.productId, productId), eq(stockMovements.tenantId, tenantId)))
       .orderBy(desc(stockMovements.createdAt));
   },
+  async getStockByProductIds(productIds: number[], tenantId: number) {
+    if (productIds.length === 0) return [];
+    const { inArray } = await import("drizzle-orm");
+    return db
+      .select()
+      .from(productStockByBranch)
+      .where(and(
+        eq(productStockByBranch.tenantId, tenantId),
+        inArray(productStockByBranch.productId, productIds)
+      ));
+  },
   async createStockMovement(data: InsertStockMovement) {
     const [movement] = await db.insert(stockMovements).values(data).returning();
     return movement;

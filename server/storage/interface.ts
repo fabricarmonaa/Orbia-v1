@@ -58,6 +58,8 @@ export interface IStorage {
 
   getBranches(tenantId: number): Promise<Branch[]>;
   createBranch(data: InsertBranch): Promise<Branch>;
+  getBranchById(id: number, tenantId: number): Promise<Branch | undefined>;
+  getBranchCount(tenantId: number): Promise<number>;
   softDeleteBranch(id: number, tenantId: number): Promise<Branch | undefined>;
 
   getOrderStatuses(tenantId: number): Promise<OrderStatus[]>;
@@ -114,7 +116,7 @@ export interface IStorage {
   getProductCategories(tenantId: number): Promise<ProductCategory[]>;
   createProductCategory(data: InsertProductCategory): Promise<ProductCategory>;
 
-  getProducts(tenantId: number): Promise<Product[]>;
+  getProducts(tenantId: number, options?: any): Promise<any>;
   getProductById(id: number, tenantId: number): Promise<Product | undefined>;
   createProduct(data: InsertProduct): Promise<Product>;
   updateProduct(id: number, tenantId: number, data: Partial<InsertProduct>): Promise<Product>;
@@ -264,6 +266,7 @@ export interface IStorage {
   }>>;
   upsertProductStockByBranch(data: InsertProductStockByBranch): Promise<ProductStockByBranch>;
   getStockMovements(productId: number, tenantId: number): Promise<StockMovement[]>;
+  getStockByProductIds(productIds: number[], tenantId: number): Promise<ProductStockByBranch[]>;
   createStockMovement(data: InsertStockMovement): Promise<StockMovement>;
   getBranchStockCount(tenantId: number, branchId: number): Promise<number>;
 

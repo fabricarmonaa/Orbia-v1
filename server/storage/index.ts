@@ -64,6 +64,7 @@ export class DatabaseStorage implements IStorage {
   getBranches = branchStorage.getBranches;
   createBranch = branchStorage.createBranch;
   getBranchById = branchStorage.getBranchById;
+  getBranchCount = branchStorage.countByTenant;
   softDeleteBranch = branchStorage.softDeleteBranch;
 
   getOrderStatuses = orderStorage.getOrderStatuses;
@@ -144,6 +145,7 @@ export class DatabaseStorage implements IStorage {
   getStockSummaryByTenant = stockStorage.getStockSummaryByTenant;
   upsertProductStockByBranch = stockStorage.upsertProductStockByBranch;
   getStockMovements = stockStorage.getStockMovements;
+  getStockByProductIds = stockStorage.getStockByProductIds;
   createStockMovement = stockStorage.createStockMovement;
   getBranchStockCount = stockStorage.getBranchStockCount;
 

@@ -28,6 +28,7 @@ const limitLabels: Record<string, string> = {
 
 export function BillingSettings({ plan }: { plan: PlanInfo | null }) {
   const [addons, setAddons] = useState<Record<string, boolean>>({});
+  const [tenantInfo, setTenantInfo] = useState<{ code: string; subscriptionEndDate: string | null } | null>(null);
 
   useEffect(() => {
     apiRequest("GET", "/api/addons/status")
@@ -35,6 +36,19 @@ export function BillingSettings({ plan }: { plan: PlanInfo | null }) {
       .then((data) => setAddons(data.data || {}))
       .catch(() => setAddons({}));
   }, []);
+
+  useEffect(() => {
+    apiRequest("GET", "/api/tenant/info")
+      .then((res) => res.json())
+      .then((data) => setTenantInfo(data.data || null))
+      .catch(() => setTenantInfo(null));
+  }, []);
+
+  const handleWhatsAppClick = () => {
+    if (!tenantInfo?.code) return;
+    const message = encodeURIComponent(`Hola! Mi código de negocio es ${tenantInfo.code} y quiero mejorar mi plan`);
+    window.open(`https://wa.me/5492236979026?text=${message}`, '_blank');
+  };
 
   return (
     <Card>
@@ -47,12 +61,22 @@ export function BillingSettings({ plan }: { plan: PlanInfo | null }) {
           <>
             <div className="flex items-center gap-2">
               <Badge variant="default">{plan.name}</Badge>
-              <Button variant="outline" size="sm" asChild>
-                <a href="mailto:ventas@orbia.app?subject=Mejorar%20plan" rel="noreferrer">
-                  Mejorar plan
-                </a>
+              <Button variant="outline" size="sm" onClick={handleWhatsAppClick} disabled={!tenantInfo?.code}>
+                Mejorar plan
               </Button>
             </div>
+            {tenantInfo?.subscriptionEndDate && (
+              <div className="text-sm">
+                <span className="text-muted-foreground">Fecha de finalización: </span>
+                <span className="font-medium">
+                  {new Date(tenantInfo.subscriptionEndDate).toLocaleDateString('es-AR', {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                  })}
+                </span>
+              </div>
+            )}
             <div className="space-y-2">
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
                 Funcionalidades
