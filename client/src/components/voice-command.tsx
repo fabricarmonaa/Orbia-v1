@@ -126,13 +126,7 @@ export function VoiceCommand({ context, onResult, onCancel }: VoiceCommandProps)
           setResult(data.data);
           setEditedIntent({ ...data.data.intent });
         } catch (err: any) {
-          let msg = "Error procesando el audio";
-          try {
-            const parsed = JSON.parse(err.message.split(": ").slice(1).join(": "));
-            msg = parsed.error || msg;
-          } catch {
-            if (err.message) msg = err.message;
-          }
+          const msg = err?.message || "No se pudo transcribir. Probá de nuevo o hablá más cerca del micrófono.";
           setError(msg);
         } finally {
           setProcessing(false);
@@ -236,7 +230,7 @@ export function VoiceCommand({ context, onResult, onCancel }: VoiceCommandProps)
             {processing ? (
               <>
                 <Loader2 className="w-4 h-4 mr-1 animate-spin" />
-                Procesando...
+                Transcribiendo...
               </>
             ) : recording ? (
               <>
@@ -253,7 +247,7 @@ export function VoiceCommand({ context, onResult, onCancel }: VoiceCommandProps)
           {recording && (
             <div className="flex items-center gap-1.5">
               <div className="w-2 h-2 rounded-full bg-destructive animate-pulse" />
-              <span className="text-xs text-muted-foreground">Grabando...</span>
+              <span className="text-xs text-muted-foreground">Grabando... hablá con claridad</span>
             </div>
           )}
           {onCancel && (
@@ -262,6 +256,10 @@ export function VoiceCommand({ context, onResult, onCancel }: VoiceCommandProps)
             </Button>
           )}
         </div>
+      )}
+
+      {processing && !error && !result && (
+        <p className="text-xs text-muted-foreground">Transcribiendo audio…</p>
       )}
 
       {error && (
