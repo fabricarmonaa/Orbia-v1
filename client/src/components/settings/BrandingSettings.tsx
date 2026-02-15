@@ -39,6 +39,7 @@ interface LayoutPreset {
 }
 
 interface BrandingSettingsProps {
+  planCode?: string;
   config: ConfigForm;
   setConfig: (value: ConfigForm) => void;
   saveConfig: (e: React.FormEvent) => void;
@@ -74,7 +75,9 @@ export function BrandingSettings({
   resetBranding,
   previewOrder,
   layoutPresets,
+  planCode,
 }: BrandingSettingsProps) {
+  const isEconomic = (planCode || "").toUpperCase() === "ECONOMICO";
   return (
     <>
       <Card>
@@ -294,47 +297,53 @@ export function BrandingSettings({
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label>Instagram</Label>
-                <Input
-                  value={brandingForm.links.instagram || ""}
-                  onChange={(e) =>
-                    setBrandingForm({
-                      ...brandingForm,
-                      links: { ...brandingForm.links, instagram: e.target.value },
-                    })
-                  }
-                  placeholder="https://instagram.com/tu_negocio"
-                />
+            {!isEconomic ? (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label>Instagram</Label>
+                  <Input
+                    value={brandingForm.links.instagram || ""}
+                    onChange={(e) =>
+                      setBrandingForm({
+                        ...brandingForm,
+                        links: { ...brandingForm.links, instagram: e.target.value },
+                      })
+                    }
+                    placeholder="https://instagram.com/tu_negocio"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Whatsapp</Label>
+                  <Input
+                    value={brandingForm.links.whatsapp || ""}
+                    onChange={(e) =>
+                      setBrandingForm({
+                        ...brandingForm,
+                        links: { ...brandingForm.links, whatsapp: e.target.value },
+                      })
+                    }
+                    placeholder="+54911xxxxxxx"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Web</Label>
+                  <Input
+                    value={brandingForm.links.web || ""}
+                    onChange={(e) =>
+                      setBrandingForm({
+                        ...brandingForm,
+                        links: { ...brandingForm.links, web: e.target.value },
+                      })
+                    }
+                    placeholder="https://tusitio.com"
+                  />
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label>Whatsapp</Label>
-                <Input
-                  value={brandingForm.links.whatsapp || ""}
-                  onChange={(e) =>
-                    setBrandingForm({
-                      ...brandingForm,
-                      links: { ...brandingForm.links, whatsapp: e.target.value },
-                    })
-                  }
-                  placeholder="+54911xxxxxxx"
-                />
+            ) : (
+              <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                Tu plan actual incluye personalización de colores, logo y textos. Los enlaces externos están disponibles en planes superiores.
               </div>
-              <div className="space-y-2">
-                <Label>Web</Label>
-                <Input
-                  value={brandingForm.links.web || ""}
-                  onChange={(e) =>
-                    setBrandingForm({
-                      ...brandingForm,
-                      links: { ...brandingForm.links, web: e.target.value },
-                    })
-                  }
-                  placeholder="https://tusitio.com"
-                />
-              </div>
-            </div>
+            )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">

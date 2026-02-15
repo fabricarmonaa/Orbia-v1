@@ -1,5 +1,5 @@
-import { useState, useCallback } from "react";
-import { apiRequest } from "@/lib/auth";
+import { useState, useCallback, useEffect, useRef } from "react";
+import { apiRequest, registerSessionCleanup } from "@/lib/auth";
 import { usePlan } from "@/lib/plan";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -49,6 +49,8 @@ export function VoiceCommand({ context, onResult, onCancel }: VoiceCommandProps)
   const { hasFeature } = usePlan();
   const [recording, setRecording] = useState(false);
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const [processing, setProcessing] = useState(false);
   const [applying, setApplying] = useState(false);
   const [result, setResult] = useState<SttResult | null>(null);
@@ -98,7 +100,8 @@ export function VoiceCommand({ context, onResult, onCancel }: VoiceCommandProps)
       };
 
       recorder.onstop = async () => {
-        stream.getTracks().forEach((t) => t.stop());
+        streamRef.current?.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
         const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
         if (blob.size === 0) {
           setError("No se grabó audio");
@@ -126,19 +129,15 @@ export function VoiceCommand({ context, onResult, onCancel }: VoiceCommandProps)
           setResult(data.data);
           setEditedIntent({ ...data.data.intent });
         } catch (err: any) {
-          let msg = "Error procesando el audio";
-          try {
-            const parsed = JSON.parse(err.message.split(": ").slice(1).join(": "));
-            msg = parsed.error || msg;
-          } catch {
-            if (err.message) msg = err.message;
-          }
+          const msg = err?.message || "No se pudo transcribir. Probá de nuevo o hablá más cerca del micrófono.";
           setError(msg);
         } finally {
           setProcessing(false);
         }
       };
 
+      mediaRecorderRef.current = recorder;
+      streamRef.current = stream;
       recorder.start();
       setMediaRecorder(recorder);
       setRecording(true);
@@ -150,6 +149,7 @@ export function VoiceCommand({ context, onResult, onCancel }: VoiceCommandProps)
   const handleStopRecording = useCallback(() => {
     if (mediaRecorder && mediaRecorder.state === "recording") {
       mediaRecorder.stop();
+      mediaRecorderRef.current = null;
       setRecording(false);
       setMediaRecorder(null);
     }
@@ -212,6 +212,32 @@ export function VoiceCommand({ context, onResult, onCancel }: VoiceCommandProps)
     setEditedIntent((prev) => ({ ...prev, [key]: value }));
   }, []);
 
+
+  useEffect(() => {
+    const stopVoiceResources = () => {
+      const recorder = mediaRecorderRef.current;
+      if (recorder && recorder.state === "recording") {
+        try {
+          recorder.stop();
+        } catch {
+          // noop
+        }
+      }
+      mediaRecorderRef.current = null;
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+      setRecording(false);
+      setMediaRecorder(null);
+      setProcessing(false);
+    };
+
+    const unregister = registerSessionCleanup(stopVoiceResources);
+    return () => {
+      unregister();
+      stopVoiceResources();
+    };
+  }, []);
+
   if (!canUseSTT) return null;
 
   const contextLabels: Record<VoiceContext, string> = {
@@ -236,7 +262,7 @@ export function VoiceCommand({ context, onResult, onCancel }: VoiceCommandProps)
             {processing ? (
               <>
                 <Loader2 className="w-4 h-4 mr-1 animate-spin" />
-                Procesando...
+                Transcribiendo...
               </>
             ) : recording ? (
               <>
@@ -253,7 +279,7 @@ export function VoiceCommand({ context, onResult, onCancel }: VoiceCommandProps)
           {recording && (
             <div className="flex items-center gap-1.5">
               <div className="w-2 h-2 rounded-full bg-destructive animate-pulse" />
-              <span className="text-xs text-muted-foreground">Grabando...</span>
+              <span className="text-xs text-muted-foreground">Grabando... hablá con claridad</span>
             </div>
           )}
           {onCancel && (
@@ -262,6 +288,10 @@ export function VoiceCommand({ context, onResult, onCancel }: VoiceCommandProps)
             </Button>
           )}
         </div>
+      )}
+
+      {processing && !error && !result && (
+        <p className="text-xs text-muted-foreground">Transcribiendo audio…</p>
       )}
 
       {error && (

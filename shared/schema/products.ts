@@ -8,6 +8,7 @@ import {
   serial,
   numeric,
   index,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -51,7 +52,11 @@ export const products = pgTable(
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
-  (table) => [index("idx_products_tenant").on(table.tenantId)]
+  (table) => [
+    index("idx_products_tenant").on(table.tenantId),
+    index("idx_products_tenant_category_active_created").on(table.tenantId, table.categoryId, table.isActive, table.createdAt),
+    uniqueIndex("uq_products_tenant_sku").on(table.tenantId, table.sku),
+  ]
 );
 
 export const insertProductSchema = createInsertSchema(products).omit({

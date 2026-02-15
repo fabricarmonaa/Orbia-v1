@@ -16,6 +16,7 @@ import { registerExpenseRoutes } from "./expenses";
 import { registerBrandingRoutes } from "./branding";
 import { registerPdfRoutes } from "./pdfs";
 import { registerAuditRoutes } from "./audit";
+import { registerReportRoutes } from "./reports";
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
   registerStaticUploads(app);
@@ -35,5 +36,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   registerDeliveryRoutes(app);
   registerBranchUserRoutes(app);
   registerExpenseRoutes(app);
+  registerReportRoutes(app);
   return httpServer;
 }

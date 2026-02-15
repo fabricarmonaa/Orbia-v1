@@ -62,6 +62,13 @@ INTENT_PARSERS = {
 }
 
 WORKER_TIMEOUT = int(os.environ.get("AI_WORKER_TIMEOUT_SECONDS", "25"))
+STT_DEBUG = os.environ.get("STT_DEBUG", "false").lower() == "true"
+
+
+def stt_log(message: str, **data):
+    if not STT_DEBUG:
+        return
+    print(f"[ai-stt] {message}", data)
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -155,11 +162,13 @@ async def transcribe_with_subprocess(audio_base64: str, timeout: int) -> str:
 
 @app.post("/api/stt", response_model=STTResponse)
 async def stt(request: STTRequest):
+    stt_log("request_received", context=request.context, audio_base64_bytes=len(request.audio))
     if request.context not in INTENT_PARSERS:
         raise HTTPException(status_code=400, detail="Contexto inválido")
 
     try:
         transcription = await transcribe_with_subprocess(request.audio, WORKER_TIMEOUT)
+        stt_log("transcription_ok", transcription_len=len(transcription))
     except HTTPException:
         raise
     except Exception as e:
@@ -170,6 +179,7 @@ async def stt(request: STTRequest):
 
     parser = INTENT_PARSERS[request.context]
     intent = parser(transcription)
+    stt_log("intent_parsed", intent_keys=list(intent.keys()) if isinstance(intent, dict) else [])
 
     return STTResponse(transcription=transcription, intent=intent)
 

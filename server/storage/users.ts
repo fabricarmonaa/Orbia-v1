@@ -1,5 +1,5 @@
 import { db } from "../db";
-import { eq, and, isNull, inArray } from "drizzle-orm";
+import { eq, and, isNull, inArray, asc } from "drizzle-orm";
 import { users, type InsertUser } from "@shared/schema";
 
 export const userStorage = {
@@ -64,6 +64,21 @@ export const userStorage = {
           isNull(users.deletedAt)
         )
       );
+  },
+  async getPrimaryTenantAdmin(tenantId: number) {
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(
+        and(
+          eq(users.tenantId, tenantId),
+          eq(users.role, "admin"),
+          isNull(users.deletedAt)
+        )
+      )
+      .orderBy(asc(users.createdAt))
+      .limit(1);
+    return user;
   },
   async getUsersByIds(tenantId: number, userIds: number[]) {
     if (!userIds.length) return [];

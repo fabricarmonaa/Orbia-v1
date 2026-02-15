@@ -9,11 +9,13 @@ const profileUploadDir = resolveUploadDir("profiles");
 const deliveryUploadDir = resolveUploadDir("delivery");
 const tenantLogoDir = resolveUploadDir("tenant-logos");
 const appLogoDir = resolveUploadDir("app");
+const avatarDir = resolveUploadDir("avatars");
 
 export const profileUpload = createImageUpload("profiles", "default");
 export const deliveryUpload = createImageUpload("delivery", "default");
 export const tenantLogoUpload = createImageUpload("tenant-logos", "logo");
 export const appLogoUpload = createImageUpload("app", "logo");
+export const avatarUpload = createImageUpload("avatars", "default");
 
 const uploadLimiter = createRateLimiter({
   windowMs: 60 * 1000,
@@ -28,6 +30,7 @@ export function registerStaticUploads(app: Express) {
   app.use("/uploads/delivery", express.static(deliveryUploadDir));
   app.use("/uploads/tenant-logos", express.static(tenantLogoDir));
   app.use("/uploads/app", express.static(appLogoDir));
+  app.use("/uploads/avatars", express.static(avatarDir));
 }
 
 export function registerUploadRoutes(app: Express) {
@@ -71,4 +74,25 @@ export function registerUploadRoutes(app: Express) {
       }
     }
   );
+
+  app.post(
+    "/api/uploads/avatar",
+    tenantAuth,
+    uploadLimiter,
+    handleSingleUpload(avatarUpload, "avatar"),
+    async (req, res) => {
+      try {
+        if (!req.file) return res.status(400).json({ error: "No se subió archivo", code: "UPLOAD_MISSING" });
+        const avatarUrl = `/uploads/avatars/${req.file.filename}`;
+        await storage.updateUser(req.auth!.userId, req.auth!.tenantId!, {
+          avatarUrl,
+          avatarUpdatedAt: new Date(),
+        } as any);
+        res.json({ url: `${avatarUrl}?v=${Date.now()}` });
+      } catch {
+        res.status(500).json({ error: "No se pudo subir avatar", code: "AVATAR_UPLOAD_ERROR" });
+      }
+    }
+  );
+
 }

@@ -25,10 +25,15 @@ export const users = pgTable(
     branchId: integer("branch_id"),
     isActive: boolean("is_active").notNull().default(true),
     isSuperAdmin: boolean("is_super_admin").notNull().default(false),
+    avatarUrl: text("avatar_url"),
+    avatarUpdatedAt: timestamp("avatar_updated_at"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     deletedAt: timestamp("deleted_at"),
   },
-  (table) => [index("idx_users_tenant").on(table.tenantId)]
+  (table) => [
+    index("idx_users_tenant").on(table.tenantId),
+    index("idx_users_tenant_deleted_at").on(table.tenantId, table.deletedAt),
+  ]
 );
 
 export const insertUserSchema = createInsertSchema(users).omit({

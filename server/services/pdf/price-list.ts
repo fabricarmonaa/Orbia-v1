@@ -2,8 +2,18 @@ import path from "path";
 import fs from "fs";
 import { storage } from "../../storage";
 
-const ALLOWED_COLUMNS = ["name", "sku", "description", "price", "stock_total", "branch_stock"] as const;
+type PriceListProduct = {
+  id: number;
+  name: string;
+  description?: string | null;
+  price: string | number;
+  sku?: string | null;
+  stock?: number | null;
+  stockTotal?: number;
+  branchStock?: Array<{ branchName: string; stock: number }>;
+};
 
+const ALLOWED_COLUMNS = ["name", "sku", "description", "price", "stock_total", "branch_stock"] as const;
 type ColumnKey = (typeof ALLOWED_COLUMNS)[number];
 
 function sanitizeText(value: string | null | undefined, max: number) {
@@ -22,6 +32,25 @@ function parseLocalFile(logoUrl?: string | null) {
   return null;
 }
 
+
+
+function drawEconomicWatermark(doc: any, appLogoPath: string | null) {
+  const watermarkY = doc.page.height - doc.page.margins.bottom - 36;
+  const watermarkX = doc.page.margins.left;
+
+  doc.save();
+  try {
+    if (appLogoPath) {
+      doc.opacity(0.16);
+      doc.image(appLogoPath, watermarkX, watermarkY, { fit: [76, 22], align: "left", valign: "bottom" });
+    } else {
+      doc.opacity(0.18).fontSize(10).fillColor("#6b7280").text("ORBIA", watermarkX, watermarkY + 8);
+    }
+  } catch {
+    doc.opacity(0.18).fontSize(10).fillColor("#6b7280").text("ORBIA", watermarkX, watermarkY + 8);
+  }
+  doc.restore();
+}
 function resolveColumns(settings: { columns: string[]; showSku: boolean; showDescription: boolean; showBranchStock: boolean }) {
   const unique = Array.from(new Set(settings.columns));
   const filtered = unique.filter((col) => ALLOWED_COLUMNS.includes(col as ColumnKey));
@@ -43,27 +72,45 @@ function formatBranchStock(entries: Array<{ branchName: string; stock: number }>
   return visible.join(" | ");
 }
 
-export async function generatePriceListPdf(tenantId: number) {
+export async function generatePriceListPdf(
+  tenantId: number,
+  options?: { products?: PriceListProduct[]; hasBranches?: boolean; watermarkOrbia?: boolean }
+) {
   const settings = await storage.getTenantPdfSettings(tenantId);
   const branding = await storage.getTenantBranding(tenantId);
   const appBranding = await storage.getAppBranding();
 
-  const logoPath = settings.showLogo
-    ? parseLocalFile(branding.logoUrl || appBranding.orbiaLogoUrl)
-    : null;
+  const appLogoPath = parseLocalFile(appBranding.orbiaLogoUrl);
+  const logoPath = options?.watermarkOrbia
+    ? null
+    : (settings.showLogo ? parseLocalFile(branding.logoUrl || appBranding.orbiaLogoUrl) : null);
   const primaryColor = (branding.colors as any)?.primary || "#6366f1";
 
-  const products = await storage.getProducts(tenantId);
-  const stockRows = settings.showBranchStock ? await storage.getStockSummaryByTenant(tenantId) : [];
+  const products = options?.products || await storage.getProducts(tenantId);
+  const hasBranchMode = options?.hasBranches ?? settings.showBranchStock;
+  const stockRows = hasBranchMode ? await storage.getStockSummaryByTenant(tenantId) : [];
 
   const stockByProduct = new Map<number, Array<{ branchName: string; stock: number }>>();
   const stockTotals = new Map<number, number>();
 
-  for (const row of stockRows) {
-    const list = stockByProduct.get(row.productId) || [];
-    list.push({ branchName: row.branchName, stock: row.stock });
-    stockByProduct.set(row.productId, list);
-    stockTotals.set(row.productId, (stockTotals.get(row.productId) || 0) + row.stock);
+  if (!options?.products) {
+    for (const row of stockRows) {
+      const list = stockByProduct.get(row.productId) || [];
+      list.push({ branchName: row.branchName, stock: row.stock });
+      stockByProduct.set(row.productId, list);
+      stockTotals.set(row.productId, (stockTotals.get(row.productId) || 0) + row.stock);
+    }
+  }
+
+  if (options?.products) {
+    for (const product of options.products) {
+      if (product.stockTotal !== undefined) {
+        stockTotals.set(product.id, product.stockTotal);
+      }
+      if (product.branchStock?.length) {
+        stockByProduct.set(product.id, product.branchStock);
+      }
+    }
   }
 
   const columns = resolveColumns({
@@ -161,7 +208,7 @@ export async function generatePriceListPdf(tenantId: number) {
       cursorY = doc.page.margins.top;
     }
     x = doc.page.margins.left;
-    const totalStock = stockTotals.get(product.id) || 0;
+    const totalStock = stockTotals.get(product.id) || product.stock || 0;
     const branchEntries = stockByProduct.get(product.id) || [];
     const branchStock = settings.showBranchStock ? formatBranchStock(branchEntries) : "";
     const rowValues: Record<ColumnKey, string> = {
@@ -181,6 +228,10 @@ export async function generatePriceListPdf(tenantId: number) {
       x += columnWidths[idx];
     });
     cursorY += styles.rowHeight;
+  }
+
+  if (options?.watermarkOrbia) {
+    drawEconomicWatermark(doc, appLogoPath);
   }
 
   if (footerText) {

@@ -1,9 +1,14 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
+import { parseApiError } from "@/lib/api-errors";
+import { getToken, handleUnauthorizedCode } from "@/lib/auth";
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
-    const text = (await res.text()) || res.statusText;
-    throw new Error(`${res.status}: ${text}`);
+    const info = await parseApiError(res);
+    if (res.status === 401) {
+      handleUnauthorizedCode(info.code);
+    }
+    throw new Error(info.message);
   }
 }
 
@@ -12,11 +17,16 @@ export async function apiRequest(
   url: string,
   data?: unknown | undefined,
 ): Promise<Response> {
+  const token = getToken();
+  const headers: Record<string, string> = data ? { "Content-Type": "application/json" } : {};
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
   const res = await fetch(url, {
     method,
-    headers: data ? { "Content-Type": "application/json" } : {},
+    headers,
     body: data ? JSON.stringify(data) : undefined,
-    credentials: "include",
   });
 
   await throwIfResNotOk(res);
@@ -28,13 +38,22 @@ export const getQueryFn: <T>(options: {
   on401: UnauthorizedBehavior;
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
-  async ({ queryKey }) => {
+  async ({ queryKey, signal }) => {
+    const token = getToken();
+    const headers: Record<string, string> = {};
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+
     const res = await fetch(queryKey.join("/") as string, {
-      credentials: "include",
+      headers,
+      signal,
     });
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
-      return null;
+      const info = await parseApiError(res);
+      handleUnauthorizedCode(info.code);
+      return null as any;
     }
 
     await throwIfResNotOk(res);
@@ -48,7 +67,10 @@ export const queryClient = new QueryClient({
       refetchInterval: false,
       refetchOnWindowFocus: false,
       staleTime: Infinity,
-      retry: false,
+      retry: (failureCount, error: any) => {
+        if ((error?.message || "").toLowerCase().includes("sesión")) return false;
+        return failureCount < 1;
+      },
     },
     mutations: {
       retry: false,

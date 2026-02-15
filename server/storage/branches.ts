@@ -1,5 +1,5 @@
 import { db } from "../db";
-import { eq, and, isNull } from "drizzle-orm";
+import { eq, and, isNull, count } from "drizzle-orm";
 import { branches, type InsertBranch } from "@shared/schema";
 
 export const branchStorage = {
@@ -27,5 +27,12 @@ export const branchStorage = {
       .where(and(eq(branches.id, id), eq(branches.tenantId, tenantId), isNull(branches.deletedAt)))
       .returning();
     return branch;
+  },
+  async countBranchesByTenant(tenantId: number) {
+    const [result] = await db
+      .select({ count: count() })
+      .from(branches)
+      .where(and(eq(branches.tenantId, tenantId), isNull(branches.deletedAt)));
+    return result?.count || 0;
   },
 };

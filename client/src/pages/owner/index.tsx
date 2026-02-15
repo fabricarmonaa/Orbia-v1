@@ -25,6 +25,13 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   Building2,
   Plus,
   Users,
@@ -38,10 +45,15 @@ import {
   Lock,
   Unlock,
   Save,
+  MoreVertical,
+  Pencil,
+  KeyRound,
+  Trash2,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useBranding } from "@/context/BrandingContext";
+import { parseApiError } from "@/lib/api-errors";
 import type { Tenant, Plan, TenantAddon } from "@shared/schema";
 
 function getSubscriptionStatus(tenant: Tenant): {
@@ -49,6 +61,12 @@ function getSubscriptionStatus(tenant: Tenant): {
   variant: "default" | "secondary" | "destructive" | "outline";
   className: string;
 } {
+  if (tenant.deletedAt) {
+    return { label: "Eliminado", variant: "destructive", className: "" };
+  }
+  if (tenant.isBlocked) {
+    return { label: "Bloqueado", variant: "destructive", className: "" };
+  }
   if (!tenant.isActive) {
     return { label: "Bloqueada", variant: "destructive", className: "" };
   }
@@ -111,6 +129,18 @@ export default function OwnerDashboard() {
   const [subscriptionDates, setSubscriptionDates] = useState<Record<number, { start: string; end: string }>>({});
   const [savingSubscription, setSavingSubscription] = useState<number | null>(null);
   const [togglingBlock, setTogglingBlock] = useState<number | null>(null);
+  const [showDeleted, setShowDeleted] = useState(false);
+
+  const [actionTenant, setActionTenant] = useState<Tenant | null>(null);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [resetPasswordOpen, setResetPasswordOpen] = useState(false);
+  const [setPasswordOpen, setSetPasswordOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [renameValue, setRenameValue] = useState("");
+  const [tempPassword, setTempPassword] = useState<string | null>(null);
+  const [newPasswordValue, setNewPasswordValue] = useState("");
+  const [deleteConfirm, setDeleteConfirm] = useState("");
+  const [processingTenantAction, setProcessingTenantAction] = useState(false);
 
   const [newTenant, setNewTenant] = useState({
     code: "",
@@ -120,6 +150,18 @@ export default function OwnerDashboard() {
     adminPassword: "",
     adminName: "",
   });
+
+  const [securityEmail, setSecurityEmail] = useState("");
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newSecurityEmail, setNewSecurityEmail] = useState("");
+  const [newSecurityPassword, setNewSecurityPassword] = useState("");
+  const [confirmSecurityPassword, setConfirmSecurityPassword] = useState("");
+  const [savingSecurity, setSavingSecurity] = useState(false);
+  const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
+  const [twoFactorQrDataUrl, setTwoFactorQrDataUrl] = useState<string | null>(null);
+  const [twoFactorOtpAuthUrl, setTwoFactorOtpAuthUrl] = useState<string | null>(null);
+  const [twoFactorManualSecret, setTwoFactorManualSecret] = useState<string | null>(null);
+  const [twoFactorToken, setTwoFactorToken] = useState("");
 
   useEffect(() => {
     if (!isAuthenticated || !user?.isSuperAdmin) {
@@ -142,6 +184,11 @@ export default function OwnerDashboard() {
       if (data.data?.avatarUrl) {
         setAvatarUrl(data.data.avatarUrl);
       }
+      const secRes = await apiRequest("GET", "/api/super/security");
+      const secData = await secRes.json();
+      setSecurityEmail(secData.data?.email || "");
+      setNewSecurityEmail(secData.data?.email || "");
+      setTwoFactorEnabled(!!secData.data?.twoFactorEnabled);
     } catch {
     }
   }
@@ -205,8 +252,8 @@ export default function OwnerDashboard() {
         body: formData,
       });
       if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || res.statusText);
+        const info = await parseApiError(res, { maxUploadBytes: 2000000 });
+        throw new Error(info.message);
       }
       const data = await res.json();
       if (data.data?.avatarUrl) {
@@ -238,8 +285,8 @@ export default function OwnerDashboard() {
         body: formData,
       });
       if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || res.statusText);
+        const info = await parseApiError(res, { maxUploadBytes: 1000000 });
+        throw new Error(info.message);
       }
       const data = await res.json();
       if (data.url) {
@@ -335,13 +382,13 @@ export default function OwnerDashboard() {
     }
   }
 
-  async function toggleBlock(tenantId: number, currentlyActive: boolean) {
+  async function toggleBlock(tenantId: number, currentlyBlocked: boolean) {
     setTogglingBlock(tenantId);
     try {
       await apiRequest("PATCH", `/api/super/tenants/${tenantId}/block`, {
-        isActive: !currentlyActive,
+        blocked: !currentlyBlocked,
       });
-      toast({ title: currentlyActive ? "Tenant bloqueado" : "Tenant desbloqueado" });
+      toast({ title: currentlyBlocked ? "Tenant desbloqueado" : "Tenant bloqueado" });
       fetchData();
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -350,11 +397,101 @@ export default function OwnerDashboard() {
     }
   }
 
-  const filteredTenants = tenants.filter(
-    (t) =>
-      t.name.toLowerCase().includes(search.toLowerCase()) ||
-      t.code.toLowerCase().includes(search.toLowerCase())
-  );
+  function openRenameDialog(tenant: Tenant) {
+    setActionTenant(tenant);
+    setRenameValue(tenant.name);
+    setRenameOpen(true);
+  }
+
+  function openResetPasswordDialog(tenant: Tenant) {
+    setActionTenant(tenant);
+    setTempPassword(null);
+    setResetPasswordOpen(true);
+  }
+
+  function openSetPasswordDialog(tenant: Tenant) {
+    setActionTenant(tenant);
+    setNewPasswordValue("");
+    setSetPasswordOpen(true);
+  }
+
+  function openDeleteDialog(tenant: Tenant) {
+    setActionTenant(tenant);
+    setDeleteConfirm("");
+    setDeleteOpen(true);
+  }
+
+  async function submitRename() {
+    if (!actionTenant) return;
+    setProcessingTenantAction(true);
+    try {
+      await apiRequest("PATCH", `/api/super/tenants/${actionTenant.id}/rename`, { name: renameValue });
+      toast({ title: "Nombre actualizado" });
+      setRenameOpen(false);
+      fetchData();
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally {
+      setProcessingTenantAction(false);
+    }
+  }
+
+  async function submitResetPassword() {
+    if (!actionTenant) return;
+    setProcessingTenantAction(true);
+    try {
+      const res = await apiRequest("POST", `/api/super/tenants/${actionTenant.id}/admin/reset-password`);
+      const data = await res.json();
+      setTempPassword(data.tempPassword || null);
+      toast({ title: "Contraseña reseteada" });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally {
+      setProcessingTenantAction(false);
+    }
+  }
+
+  async function submitSetPassword() {
+    if (!actionTenant) return;
+    if (!newPasswordValue) {
+      toast({ title: "Error", description: "Ingresá una contraseña", variant: "destructive" });
+      return;
+    }
+    setProcessingTenantAction(true);
+    try {
+      await apiRequest("POST", `/api/super/tenants/${actionTenant.id}/admin/set-password`, {
+        newPassword: newPasswordValue,
+      });
+      toast({ title: "Contraseña actualizada" });
+      setSetPasswordOpen(false);
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally {
+      setProcessingTenantAction(false);
+    }
+  }
+
+  async function submitDeleteTenant() {
+    if (!actionTenant) return;
+    setProcessingTenantAction(true);
+    try {
+      await apiRequest("DELETE", `/api/super/tenants/${actionTenant.id}`, { confirmText: deleteConfirm });
+      toast({ title: "Negocio eliminado" });
+      setDeleteOpen(false);
+      fetchData();
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally {
+      setProcessingTenantAction(false);
+    }
+  }
+
+  const filteredTenants = tenants.filter((t) => {
+    const matchesSearch = t.name.toLowerCase().includes(search.toLowerCase()) ||
+      t.code.toLowerCase().includes(search.toLowerCase());
+    const matchesDeleted = showDeleted ? true : !t.deletedAt;
+    return matchesSearch && matchesDeleted;
+  });
 
   const activeTenants = tenants.filter((t) => t.isActive).length;
 
@@ -364,6 +501,78 @@ export default function OwnerDashboard() {
   }
 
   if (!isAuthenticated || !user?.isSuperAdmin) return null;
+
+
+  async function saveSuperCredentials(e: React.FormEvent) {
+    e.preventDefault();
+    if (!currentPassword) {
+      toast({ title: "Error", description: "Ingresá tu contraseña actual", variant: "destructive" });
+      return;
+    }
+    if (newSecurityPassword && newSecurityPassword !== confirmSecurityPassword) {
+      toast({ title: "Error", description: "Las contraseñas no coinciden", variant: "destructive" });
+      return;
+    }
+    setSavingSecurity(true);
+    try {
+      await apiRequest("PUT", "/api/super/credentials", {
+        currentPassword,
+        newEmail: newSecurityEmail !== securityEmail ? newSecurityEmail : undefined,
+        newPassword: newSecurityPassword || undefined,
+      });
+      toast({ title: "Seguridad actualizada" });
+      setSecurityEmail(newSecurityEmail);
+      setCurrentPassword("");
+      setNewSecurityPassword("");
+      setConfirmSecurityPassword("");
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally {
+      setSavingSecurity(false);
+    }
+  }
+
+  async function setupTwoFactor() {
+    try {
+      const res = await apiRequest("POST", "/api/super/2fa/setup", { accountLabel: securityEmail });
+      const data = await res.json();
+      setTwoFactorQrDataUrl(data.data?.qrDataUrl || null);
+      setTwoFactorOtpAuthUrl(data.data?.otpauthUrl || null);
+      setTwoFactorManualSecret(data.data?.manualSecret || null);
+      toast({ title: "QR generado", description: "Escanealo con Google Authenticator y luego verificá el código." });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    }
+  }
+
+  async function verifyTwoFactor() {
+    try {
+      await apiRequest("POST", "/api/super/2fa/verify", { token: twoFactorToken });
+      setTwoFactorEnabled(true);
+      setTwoFactorQrDataUrl(null);
+      setTwoFactorOtpAuthUrl(null);
+      setTwoFactorManualSecret(null);
+      setTwoFactorToken("");
+      toast({ title: "2FA habilitado" });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    }
+  }
+
+  async function disableTwoFactor() {
+    if (!currentPassword) {
+      toast({ title: "Error", description: "Ingresá tu contraseña actual", variant: "destructive" });
+      return;
+    }
+    try {
+      await apiRequest("POST", "/api/super/2fa/disable", { currentPassword, token: twoFactorToken });
+      setTwoFactorEnabled(false);
+      setTwoFactorToken("");
+      toast({ title: "2FA desactivado" });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    }
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -532,16 +741,115 @@ export default function OwnerDashboard() {
           </CardContent>
         </Card>
 
+        <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Renombrar negocio</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Nuevo nombre</Label>
+                <Input
+                  value={renameValue}
+                  onChange={(e) => setRenameValue(e.target.value)}
+                  placeholder="Nombre del negocio"
+                />
+              </div>
+              <Button onClick={submitRename} disabled={processingTenantAction}>
+                <Save className="w-4 h-4 mr-2" />
+                {processingTenantAction ? "Guardando..." : "Guardar"}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={resetPasswordOpen} onOpenChange={setResetPasswordOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Resetear contraseña admin</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Se generará una contraseña temporal que se mostrará una sola vez.
+              </p>
+              {tempPassword ? (
+                <div className="rounded-md border p-3">
+                  <p className="text-xs text-muted-foreground">Contraseña temporal</p>
+                  <p className="font-mono text-sm">{tempPassword}</p>
+                </div>
+              ) : null}
+              <Button onClick={submitResetPassword} disabled={processingTenantAction}>
+                {processingTenantAction ? "Generando..." : "Generar contraseña"}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={setPasswordOpen} onOpenChange={setSetPasswordOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Cambiar contraseña admin</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Nueva contraseña</Label>
+                <Input
+                  type="password"
+                  value={newPasswordValue}
+                  onChange={(e) => setNewPasswordValue(e.target.value)}
+                  placeholder="Nueva contraseña"
+                />
+              </div>
+              <Button onClick={submitSetPassword} disabled={processingTenantAction}>
+                {processingTenantAction ? "Guardando..." : "Guardar contraseña"}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Eliminar negocio</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Escribí el código o el nombre del negocio para confirmar el borrado.
+              </p>
+              <div className="space-y-2">
+                <Label>Confirmación</Label>
+                <Input
+                  value={deleteConfirm}
+                  onChange={(e) => setDeleteConfirm(e.target.value)}
+                  placeholder="Código o nombre"
+                />
+              </div>
+              <Button variant="destructive" onClick={submitDeleteTenant} disabled={processingTenantAction}>
+                <Trash2 className="w-4 h-4 mr-2" />
+                {processingTenantAction ? "Eliminando..." : "Eliminar negocio"}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
         <Tabs defaultValue="tenants" data-testid="tabs-owner">
           <TabsList>
             <TabsTrigger value="tenants" data-testid="tab-tenants">Negocios</TabsTrigger>
             <TabsTrigger value="subscriptions" data-testid="tab-subscriptions">Suscripciones</TabsTrigger>
+            <TabsTrigger value="security" data-testid="tab-security">Seguridad</TabsTrigger>
           </TabsList>
 
           <TabsContent value="tenants" className="space-y-4">
             <div className="flex items-center justify-between gap-4 flex-wrap">
               <h2 className="text-xl font-semibold">Negocios</h2>
               <div className="flex items-center gap-3 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <Switch
+                    checked={showDeleted}
+                    onCheckedChange={(checked) => setShowDeleted(checked)}
+                  />
+                  <span className="text-sm text-muted-foreground">Ver eliminados</span>
+                </div>
                 <div className="relative">
                   <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                   <Input
@@ -666,6 +974,7 @@ export default function OwnerDashboard() {
               <div className="space-y-3">
                 {filteredTenants.map((tenant) => {
                   const plan = plans.find((p) => p.id === tenant.planId);
+                  const status = getSubscriptionStatus(tenant);
                   return (
                     <Card key={tenant.id} className="hover-elevate" data-testid={`card-tenant-${tenant.id}`}>
                       <CardContent className="py-4">
@@ -682,8 +991,8 @@ export default function OwnerDashboard() {
                             </div>
                           </div>
                           <div className="flex items-center gap-3 flex-wrap">
-                            <Badge variant={tenant.isActive ? "default" : "secondary"}>
-                              {tenant.isActive ? "Activo" : "Inactivo"}
+                            <Badge variant={status.variant} className={status.className}>
+                              {status.label}
                             </Badge>
                             <div className="flex items-center gap-2">
                               <Truck className="w-4 h-4 text-muted-foreground" />
@@ -710,6 +1019,48 @@ export default function OwnerDashboard() {
                                 ))}
                               </SelectContent>
                             </Select>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="icon" data-testid={`button-tenant-actions-${tenant.id}`}>
+                                  <MoreVertical className="w-4 h-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem
+                                  onClick={() => toggleBlock(tenant.id, tenant.isBlocked)}
+                                  disabled={togglingBlock === tenant.id || !!tenant.deletedAt}
+                                >
+                                  {tenant.isBlocked ? (
+                                    <>
+                                      <Unlock className="w-4 h-4 mr-2" />
+                                      Desbloquear
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Lock className="w-4 h-4 mr-2" />
+                                      Bloquear
+                                    </>
+                                  )}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => openRenameDialog(tenant)} disabled={!!tenant.deletedAt}>
+                                  <Pencil className="w-4 h-4 mr-2" />
+                                  Cambiar nombre
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => openResetPasswordDialog(tenant)} disabled={!!tenant.deletedAt}>
+                                  <KeyRound className="w-4 h-4 mr-2" />
+                                  Resetear contraseña admin
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => openSetPasswordDialog(tenant)} disabled={!!tenant.deletedAt}>
+                                  <KeyRound className="w-4 h-4 mr-2" />
+                                  Cambiar contraseña admin
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem onClick={() => openDeleteDialog(tenant)} disabled={!!tenant.deletedAt}>
+                                  <Trash2 className="w-4 h-4 mr-2" />
+                                  Eliminar negocio
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                           </div>
                         </div>
                       </CardContent>
@@ -810,20 +1161,20 @@ export default function OwnerDashboard() {
                             {savingSubscription === tenant.id ? "Guardando..." : "Guardar suscripción"}
                           </Button>
                           <Button
-                            variant={tenant.isActive ? "destructive" : "default"}
-                            onClick={() => toggleBlock(tenant.id, tenant.isActive)}
-                            disabled={togglingBlock === tenant.id}
+                            variant={tenant.isBlocked ? "default" : "destructive"}
+                            onClick={() => toggleBlock(tenant.id, tenant.isBlocked)}
+                            disabled={togglingBlock === tenant.id || !!tenant.deletedAt}
                             data-testid={`button-toggle-block-${tenant.id}`}
                           >
-                            {tenant.isActive ? (
-                              <>
-                                <Lock className="w-4 h-4 mr-2" />
-                                Bloquear
-                              </>
-                            ) : (
+                            {tenant.isBlocked ? (
                               <>
                                 <Unlock className="w-4 h-4 mr-2" />
                                 Desbloquear
+                              </>
+                            ) : (
+                              <>
+                                <Lock className="w-4 h-4 mr-2" />
+                                Bloquear
                               </>
                             )}
                           </Button>
@@ -835,6 +1186,78 @@ export default function OwnerDashboard() {
               </div>
             )}
           </TabsContent>
+
+          <TabsContent value="security" className="space-y-4">
+            <h2 className="text-xl font-semibold">Seguridad SuperAdmin</h2>
+            <Card>
+              <CardHeader>
+                <h3 className="font-semibold">Credenciales</h3>
+              </CardHeader>
+              <CardContent>
+                <form onSubmit={saveSuperCredentials} className="space-y-3 max-w-xl">
+                  <div className="space-y-1">
+                    <Label>Email</Label>
+                    <Input value={newSecurityEmail} onChange={(e) => setNewSecurityEmail(e.target.value)} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Contraseña actual</Label>
+                    <Input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Nueva contraseña</Label>
+                    <Input type="password" value={newSecurityPassword} onChange={(e) => setNewSecurityPassword(e.target.value)} placeholder="Mínimo 10, una mayúscula y un número" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Confirmar nueva contraseña</Label>
+                    <Input type="password" value={confirmSecurityPassword} onChange={(e) => setConfirmSecurityPassword(e.target.value)} />
+                  </div>
+                  <Button type="submit" disabled={savingSecurity}>{savingSecurity ? "Guardando..." : "Guardar cambios"}</Button>
+                </form>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <h3 className="font-semibold">2FA (TOTP)</h3>
+              </CardHeader>
+              <CardContent className="space-y-3 max-w-xl">
+                <p className="text-sm text-muted-foreground">Estado: {twoFactorEnabled ? "Habilitado" : "Deshabilitado"}</p>
+                {!twoFactorEnabled ? (
+                  <Button variant="outline" onClick={setupTwoFactor}>Configurar 2FA</Button>
+                ) : null}
+                {twoFactorQrDataUrl ? (
+                  <div className="space-y-2">
+                    <Label>Escaneá este QR con Google Authenticator</Label>
+                    <div className="rounded-md border p-3 bg-white w-fit">
+                      <img src={twoFactorQrDataUrl} alt="QR para Google Authenticator" className="h-44 w-44" />
+                    </div>
+                  </div>
+                ) : null}
+                {twoFactorManualSecret ? (
+                  <div className="space-y-2">
+                    <Label>Clave manual (fallback)</Label>
+                    <Input value={twoFactorManualSecret} readOnly />
+                  </div>
+                ) : null}
+                {twoFactorOtpAuthUrl ? (
+                  <div className="space-y-2">
+                    <Label>URI OTP (debug)</Label>
+                    <Input value={twoFactorOtpAuthUrl} readOnly />
+                  </div>
+                ) : null}
+                <div className="space-y-1">
+                  <Label>Código 2FA</Label>
+                  <Input value={twoFactorToken} onChange={(e) => setTwoFactorToken(e.target.value)} placeholder="123456" />
+                </div>
+                {!twoFactorEnabled ? (
+                  <Button onClick={verifyTwoFactor}>Verificar y habilitar</Button>
+                ) : (
+                  <Button variant="destructive" onClick={disableTwoFactor}>Desactivar 2FA</Button>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
         </Tabs>
       </main>
     </div>
