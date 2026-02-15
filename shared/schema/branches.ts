@@ -26,7 +26,10 @@ export const branches = pgTable(
     createdAt: timestamp("created_at").defaultNow().notNull(),
     deletedAt: timestamp("deleted_at"),
   },
-  (table) => [index("idx_branches_tenant").on(table.tenantId)]
+  (table) => [
+    index("idx_branches_tenant").on(table.tenantId),
+    index("idx_branches_tenant_deleted_at").on(table.tenantId, table.deletedAt),
+  ]
 );
 
 export const insertBranchSchema = createInsertSchema(branches).omit({

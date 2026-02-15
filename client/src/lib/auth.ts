@@ -184,9 +184,13 @@ export function logout(reason: LogoutReason = "manual") {
 export function handleUnauthorizedCode(code?: string) {
   if (unauthorizedHandled) return;
   const normalizedCode = (code || "").toUpperCase();
-  if (!["TOKEN_EXPIRED", "TOKEN_INVALID", "TOKEN_REQUIRED"].includes(normalizedCode)) return;
+  if (!["AUTH_EXPIRED", "AUTH_INVALID", "AUTH_REQUIRED", "TOKEN_EXPIRED", "TOKEN_INVALID", "TOKEN_REQUIRED"].includes(normalizedCode)) return;
   unauthorizedHandled = true;
-  const reason = normalizedCode === "TOKEN_EXPIRED" ? "expired" : normalizedCode === "TOKEN_INVALID" ? "invalid" : "required";
+  const reason = (normalizedCode === "AUTH_EXPIRED" || normalizedCode === "TOKEN_EXPIRED")
+    ? "expired"
+    : (normalizedCode === "AUTH_INVALID" || normalizedCode === "TOKEN_INVALID")
+      ? "invalid"
+      : "required";
   void gracefulLogout(reason);
 }
 

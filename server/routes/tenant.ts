@@ -5,6 +5,7 @@ import { profileUpload } from "./uploads";
 import { handleSingleUpload } from "../middleware/upload-guards";
 import { createRateLimiter } from "../middleware/rate-limit";
 import { z } from "zod";
+import { getTenantMonthlyMetricsSummary } from "../services/metrics-refresh";
 
 const tenantConfigSchema = z.object({
   businessName: z.string().trim().max(80).optional(),
@@ -134,7 +135,8 @@ export function registerTenantRoutes(app: Express) {
     try {
       const tenantId = req.auth!.tenantId!;
       const branchId = req.auth!.scope === "BRANCH" ? req.auth!.branchId! : null;
-      const [totalOrders, totalProducts, monthlyIncome, monthlyExpenses, todayIncome, todayExpenses] =
+      const monthlySummary = !branchId ? await getTenantMonthlyMetricsSummary(tenantId) : null;
+      const [totalOrders, totalProducts, monthlyIncomeRaw, monthlyExpensesRaw, todayIncome, todayExpenses] =
         await Promise.all([
           storage.countOrders(tenantId, branchId),
           storage.countProducts(tenantId),
@@ -143,6 +145,8 @@ export function registerTenantRoutes(app: Express) {
           storage.getTodayIncome(tenantId, branchId),
           storage.getTodayExpenses(tenantId, branchId),
         ]);
+      const monthlyIncome = monthlySummary ? monthlySummary.cashInTotal : monthlyIncomeRaw;
+      const monthlyExpenses = monthlySummary ? monthlySummary.cashOutTotal : monthlyExpensesRaw;
       let allOrders;
       if (branchId) {
         allOrders = await storage.getOrdersByBranch(tenantId, branchId);

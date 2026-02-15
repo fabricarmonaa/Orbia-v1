@@ -30,7 +30,10 @@ export const users = pgTable(
     createdAt: timestamp("created_at").defaultNow().notNull(),
     deletedAt: timestamp("deleted_at"),
   },
-  (table) => [index("idx_users_tenant").on(table.tenantId)]
+  (table) => [
+    index("idx_users_tenant").on(table.tenantId),
+    index("idx_users_tenant_deleted_at").on(table.tenantId, table.deletedAt),
+  ]
 );
 
 export const insertUserSchema = createInsertSchema(users).omit({

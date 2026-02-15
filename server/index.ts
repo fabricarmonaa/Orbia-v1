@@ -5,6 +5,7 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 import { securityHeaders } from "./middleware/security-headers";
 import { corsGuard } from "./middleware/cors";
+import { HttpError } from "./lib/http-errors";
 
 const app = express();
 const httpServer = createServer(app);
@@ -80,17 +81,26 @@ app.use((req, res, next) => {
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
-    const status = err.status || err.statusCode || 500;
-    const code = err.code || (status === 401 ? "TOKEN_REQUIRED" : status === 403 ? "FORBIDDEN" : "INTERNAL_ERROR");
+    const isHttpError = err instanceof HttpError;
+    const status = isHttpError ? err.status : (err.status || err.statusCode || 500);
+    const code = isHttpError
+      ? err.code
+      : (err.code || (status === 401 ? "AUTH_REQUIRED" : status === 403 ? "FORBIDDEN" : "INTERNAL_ERROR"));
     const message = status >= 500 ? "Error interno del servidor" : err.message || "Solicitud inválida";
 
-    console.error("Internal Server Error:", err);
+    if (process.env.NODE_ENV !== "production") {
+      console.error("Internal Server Error:", err);
+    }
 
     if (res.headersSent) {
       return next(err);
     }
 
-    return res.status(status).json({ error: message, code });
+    const payload: Record<string, unknown> = { error: message, code };
+    if (isHttpError && err.extra) {
+      Object.assign(payload, err.extra);
+    }
+    return res.status(status).json(payload);
   });
 
   // importantly only setup vite in development and after

@@ -6,11 +6,17 @@ import { createRateLimiter } from "../middleware/rate-limit";
 import { db } from "../db";
 import { cashMovements, expenseDefinitions } from "@shared/schema";
 import { storage } from "../storage";
+import { getTenantMonthlyMetricsSummary, refreshTenantMetrics } from "../services/metrics-refresh";
 
 const monthlySummarySchema = z.object({
   year: z.number().int().min(2000).max(2100),
   month: z.number().int().min(1).max(12),
   force: z.boolean().optional(),
+});
+
+const refreshMetricsSchema = z.object({
+  from: z.string().date().optional(),
+  to: z.string().date().optional(),
 });
 
 const summaryLimiter = createRateLimiter({
@@ -19,6 +25,14 @@ const summaryLimiter = createRateLimiter({
   keyGenerator: (req) => `monthly-summary:${req.auth?.tenantId || req.ip}`,
   errorMessage: "Demasiadas solicitudes. Intentá nuevamente en un minuto.",
   code: "REPORT_RATE_LIMIT",
+});
+
+const metricsRefreshLimiter = createRateLimiter({
+  windowMs: 60 * 1000,
+  max: parseInt(process.env.METRICS_REFRESH_LIMIT_PER_MIN || "2", 10),
+  keyGenerator: (req) => `metrics-refresh:${req.auth?.tenantId || req.ip}`,
+  errorMessage: "Demasiados refresh de métricas. Esperá un minuto.",
+  code: "METRICS_REFRESH_RATE_LIMIT",
 });
 
 export function registerReportRoutes(app: Express) {
@@ -90,9 +104,45 @@ export function registerReportRoutes(app: Express) {
       res.json({ data: summary, cached: false });
     } catch (err: any) {
       if (err instanceof z.ZodError) {
-        return res.status(400).json({ error: "Datos inválidos", details: err.errors });
+        return res.status(400).json({ error: "Datos inválidos", code: "REPORT_INVALID" });
       }
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "No se pudo generar el resumen mensual", code: "REPORT_ERROR" });
     }
   });
+
+  app.post(
+    "/api/reports/metrics/refresh",
+    tenantAuth,
+    requireTenantAdmin,
+    requireNotPlanCodes(["ECONOMICO"]),
+    metricsRefreshLimiter,
+    async (req, res) => {
+      try {
+        const { from, to } = refreshMetricsSchema.parse(req.body || {});
+        await refreshTenantMetrics(req.auth!.tenantId!, { from, to });
+        return res.json({ ok: true, code: "METRICS_REFRESHED" });
+      } catch (err: any) {
+        if (err instanceof z.ZodError) {
+          return res.status(400).json({ error: "Rango inválido", code: "METRICS_RANGE_INVALID" });
+        }
+        return res.status(500).json({ error: "No se pudieron refrescar las métricas", code: "METRICS_REFRESH_ERROR" });
+      }
+    }
+  );
+
+  app.get(
+    "/api/reports/metrics/monthly",
+    tenantAuth,
+    requireNotPlanCodes(["ECONOMICO"]),
+    async (req, res) => {
+      try {
+        const monthParam = typeof req.query.month === "string" ? req.query.month : undefined;
+        const monthDate = monthParam ? new Date(monthParam) : new Date();
+        const data = await getTenantMonthlyMetricsSummary(req.auth!.tenantId!, monthDate);
+        return res.json({ data });
+      } catch {
+        return res.status(500).json({ error: "No se pudieron obtener métricas", code: "METRICS_READ_ERROR" });
+      }
+    }
+  );
 }

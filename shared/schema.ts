@@ -13,3 +13,5 @@ export * from './schema/audit';
 export * from './schema/permissions';
 export * from './schema/branding';
 export * from './schema/pdf-settings';
+
+export * from './schema/metrics';

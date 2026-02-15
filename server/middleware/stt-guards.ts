@@ -21,7 +21,7 @@ export function sttRateLimiter(req: Request, res: Response, next: NextFunction) 
   const tenantId = req.auth?.tenantId;
 
   if (!tenantId) {
-    return res.status(401).json({ error: 'No autorizado', code: 'TOKEN_REQUIRED' });
+    return res.status(401).json({ error: 'No autorizado', code: 'AUTH_REQUIRED' });
   }
 
   const now = Date.now();
@@ -50,7 +50,7 @@ export function sttConcurrencyGuard(req: Request, res: Response, next: NextFunct
   const tenantId = req.auth?.tenantId;
 
   if (!tenantId) {
-    return res.status(401).json({ error: 'No autorizado', code: 'TOKEN_REQUIRED' });
+    return res.status(401).json({ error: 'No autorizado', code: 'AUTH_REQUIRED' });
   }
 
   if (STT_CONCURRENCY_PER_TENANT === 0) {

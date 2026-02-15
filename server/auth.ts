@@ -14,12 +14,20 @@ const JWT_SECRET: string = JWT_SECRET_ENV;
 
 function unauthorizedResponse(res: Response, type: "required" | "expired" | "invalid") {
   if (type == "required") {
-    return res.status(401).json({ error: "Token requerido", code: "TOKEN_REQUIRED" });
+    return res.status(401).json({ error: "Token requerido", code: "AUTH_REQUIRED" });
   }
   if (type == "expired") {
-    return res.status(401).json({ error: "Sesión expirada. Iniciá sesión nuevamente", code: "TOKEN_EXPIRED" });
+    return res.status(401).json({ error: "Sesión expirada. Iniciá sesión nuevamente", code: "AUTH_EXPIRED" });
   }
-  return res.status(401).json({ error: "Token inválido", code: "TOKEN_INVALID" });
+  return res.status(401).json({ error: "Token inválido", code: "AUTH_INVALID" });
+}
+
+
+
+function buildUpgradeUrl(tenantCode?: string | null) {
+  if (!tenantCode) return "https://wa.me/5492236979026";
+  const text = `Hola! Mi código de negocio es ${tenantCode} y quiero mejorar mi plan`;
+  return `https://wa.me/5492236979026?text=${encodeURIComponent(text)}`;
 }
 
 function mapJwtError(err: unknown): "expired" | "invalid" {
@@ -194,11 +202,13 @@ export function requireFeature(featureKey: string) {
       }
       req.plan = plan;
       if (!plan.features[featureKey]) {
+        const tenant = await storage.getTenantById(req.auth.tenantId);
         return res.status(403).json({
           error: `Tu plan "${plan.name}" no incluye esta funcionalidad. Mejorá tu plan para acceder.`,
           code: "FEATURE_BLOCKED",
           feature: featureKey,
           currentPlan: plan.planCode,
+          upgradeUrl: buildUpgradeUrl(tenant?.code),
         });
       }
       next();
@@ -223,10 +233,12 @@ export function requirePlanCodes(allowedPlanCodes: string[]) {
       const planCode = (plan.planCode || "").toUpperCase();
       const allowed = allowedPlanCodes.map((c) => c.toUpperCase());
       if (!allowed.includes(planCode)) {
+        const tenant = await storage.getTenantById(req.auth.tenantId);
         return res.status(403).json({
           error: "Tu plan no incluye esta función.",
-          code: "PLAN_BLOCKED",
+          code: "FEATURE_BLOCKED",
           currentPlan: plan.planCode,
+          upgradeUrl: buildUpgradeUrl(tenant?.code),
         });
       }
       next();
@@ -249,10 +261,12 @@ export function requireNotPlanCodes(blockedPlanCodes: string[]) {
       req.plan = plan;
       const blocked = blockedPlanCodes.map((c) => c.toUpperCase());
       if (blocked.includes((plan.planCode || "").toUpperCase())) {
+        const tenant = await storage.getTenantById(req.auth.tenantId);
         return res.status(403).json({
           error: "Tu plan no incluye esta función. Mejorá tu plan para usarla.",
-          code: "PLAN_BLOCKED",
+          code: "FEATURE_BLOCKED",
           currentPlan: plan.planCode,
+          upgradeUrl: buildUpgradeUrl(tenant?.code),
         });
       }
       next();
@@ -378,4 +392,9 @@ export function requireTenantAdmin(req: Request, res: Response, next: NextFuncti
     return res.status(403).json({ error: "Acceso denegado" });
   }
   next();
+}
+
+
+export function requirePlanFeature(featureKey: string) {
+  return requireFeature(featureKey);
 }

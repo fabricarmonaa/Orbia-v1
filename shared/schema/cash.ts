@@ -37,7 +37,10 @@ export const cashSessions = pgTable(
     openedAt: timestamp("opened_at").defaultNow().notNull(),
     closedAt: timestamp("closed_at"),
   },
-  (table) => [index("idx_cash_sessions_tenant").on(table.tenantId)]
+  (table) => [
+    index("idx_cash_sessions_tenant").on(table.tenantId),
+    index("idx_cash_sessions_tenant_created_session").on(table.tenantId, table.openedAt, table.id),
+  ]
 );
 
 export const insertCashSessionSchema = createInsertSchema(cashSessions).omit({
@@ -125,7 +128,10 @@ export const cashMovements = pgTable(
     createdById: integer("created_by_id").references(() => users.id),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
-  (table) => [index("idx_cash_movements_tenant").on(table.tenantId)]
+  (table) => [
+    index("idx_cash_movements_tenant").on(table.tenantId),
+    index("idx_cash_movements_tenant_created_session").on(table.tenantId, table.createdAt, table.sessionId),
+  ]
 );
 
 export const insertCashMovementSchema = createInsertSchema(cashMovements).omit({
