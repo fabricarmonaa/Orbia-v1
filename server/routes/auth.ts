@@ -21,6 +21,11 @@ const superLoginByEmail = new Map<string, LockState>();
 const superMaxAttempts = parseInt(process.env.SUPERADMIN_MAX_ATTEMPTS || "6", 10);
 const superWindowMs = parseInt(process.env.SUPERADMIN_WINDOW_MS || String(15 * 60 * 1000), 10);
 const superLockMs = parseInt(process.env.SUPERADMIN_LOCK_MS || String(15 * 60 * 1000), 10);
+type TotpCheckResult = { valid?: boolean } | boolean | null | undefined;
+const superTotpByEmail = new Map<string, LockState>();
+const superTotpMaxAttempts = parseInt(process.env.SUPERADMIN_TOTP_MAX_ATTEMPTS || "5", 10);
+const superTotpLockMs = parseInt(process.env.SUPERADMIN_TOTP_LOCK_MS || String(10 * 60 * 1000), 10);
+
 
 const superLoginSchema = z.object({
   email: z.string().trim().email().max(120),
@@ -85,6 +90,13 @@ function isLocked(map: Map<string, LockState>, key: string) {
   return true;
 }
 
+
+function isTotpValid(result: TotpCheckResult) {
+  if (typeof result === "boolean") return result;
+  if (result && typeof result === "object" && "valid" in result) return result.valid === true;
+  return false;
+}
+
 async function logSuperSecurity(superAdminId: number | null, action: string, metadata: Record<string, unknown>) {
   await db.insert(superAdminAuditLogs).values({
     superAdminId,
@@ -134,9 +146,10 @@ export function registerAuthRoutes(app: Express) {
       const ip = getClientIp(req);
       const ipKey = `ip:${ip}`;
       const emailKey = `email:${email.toLowerCase()}`;
+      const totpKey = `totp:${email.toLowerCase()}`;
 
-      if (isLocked(superLoginByIp, ipKey) || isLocked(superLoginByEmail, emailKey)) {
-        const remaining = Math.max(getRemainingLockSeconds(superLoginByIp, ipKey), getRemainingLockSeconds(superLoginByEmail, emailKey));
+      if (isLocked(superLoginByIp, ipKey) || isLocked(superLoginByEmail, emailKey) || isLocked(superTotpByEmail, totpKey)) {
+        const remaining = Math.max(getRemainingLockSeconds(superLoginByIp, ipKey), getRemainingLockSeconds(superLoginByEmail, emailKey), getRemainingLockSeconds(superTotpByEmail, totpKey));
         await logSuperSecurity(null, "SUPER_LOGIN_LOCKED", { ip, email, remainingSeconds: remaining });
         return res.status(429).json({
           error: "Acceso temporalmente bloqueado por intentos fallidos.",
@@ -165,18 +178,32 @@ export function registerAuthRoutes(app: Express) {
       const totp = totpRows[0];
       if (totp?.enabled) {
         if (!totpCode) {
+          markFailure(superTotpByEmail, totpKey);
+          await logSuperSecurity(user.id, "SUPER_LOGIN_FAIL", { ip, email, reason: "TOTP_REQUIRED" });
           return res.status(401).json({ error: "Ingresá el código de verificación de 2 factores", code: "SUPERADMIN_2FA_REQUIRED" });
         }
-        const ok = await verifyTotp({ token: totpCode, secret: totp.secret, strategy: "totp" });
+        const totpResult = await verifyTotp({ token: totpCode, secret: totp.secret, strategy: "totp", digits: 6, period: 30, algorithm: "sha1" });
+        const ok = isTotpValid(totpResult);
         if (!ok) {
-          markFailure(superLoginByIp, ipKey);
-          markFailure(superLoginByEmail, emailKey);
-          await logSuperSecurity(user.id, "SUPER_LOGIN_FAIL", { ip, email, reason: "TOTP" });
+          const now = Date.now();
+          const currentTotp = superTotpByEmail.get(totpKey);
+          if (!currentTotp || now - currentTotp.firstFailureAt > superWindowMs) {
+            superTotpByEmail.set(totpKey, { failures: 1, firstFailureAt: now });
+          } else {
+            const next = { ...currentTotp, failures: currentTotp.failures + 1 };
+            if (next.failures >= superTotpMaxAttempts) {
+              next.lockedUntil = now + superTotpLockMs;
+            }
+            superTotpByEmail.set(totpKey, next);
+          }
+          await logSuperSecurity(user.id, "SUPER_LOGIN_FAIL", { ip, email, reason: "TOTP", totpResult });
           return res.status(401).json({ error: "Código de verificación inválido", code: "SUPERADMIN_2FA_INVALID" });
         }
+        superTotpByEmail.delete(totpKey);
       }
 
       clearFailures(ipKey, emailKey);
+      superTotpByEmail.delete(totpKey);
       await logSuperSecurity(user.id, "SUPER_LOGIN_SUCCESS", { ip, email });
 
       const token = generateToken({

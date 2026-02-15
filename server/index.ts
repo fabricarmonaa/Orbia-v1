@@ -80,6 +80,15 @@ app.use((req, res, next) => {
 
   await registerRoutes(httpServer, app);
 
+  app.get("/api/health", (_req, res) => {
+    return res.json({ ok: true, code: "API_HEALTHY" });
+  });
+
+  app.use("/api/{*path}", (_req, res) => {
+    return res.status(404).json({ error: "Endpoint no encontrado", code: "API_NOT_FOUND" });
+  });
+
+
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const isHttpError = err instanceof HttpError;
     const status = isHttpError ? err.status : (err.status || err.statusCode || 500);

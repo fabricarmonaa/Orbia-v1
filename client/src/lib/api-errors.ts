@@ -21,6 +21,8 @@ const DEFAULT_MESSAGES: Record<string, string> = {
   INTERNAL_ERROR: "Ocurrió un problema inesperado. Intentá nuevamente en unos segundos.",
 };
 
+const STATIC_MODE_MESSAGE = "No se pudo conectar a la API. La app está en modo estático. Iniciá el servidor (node dist/index.cjs) o configurá API_URL.";
+
 function sanitizeClientMessage(input: string) {
   if (!input) return "Ocurrió un error inesperado.";
   const hasPathLeak = /([A-Za-z]:\\|\/Users\/|\\\\)/.test(input);
@@ -41,7 +43,13 @@ export async function parseApiError(
   res: Response,
   options?: { maxUploadBytes?: number }
 ): Promise<ApiErrorInfo> {
+  const contentType = (res.headers.get("content-type") || "").toLowerCase();
   const raw = await res.text();
+
+  if (contentType.includes("text/html") || raw.trim().startsWith("<!doctype") || raw.trim().startsWith("<html")) {
+    return { message: STATIC_MODE_MESSAGE, code: "API_UNAVAILABLE", status: res.status || 503 };
+  }
+
   let parsed: any = null;
   try {
     parsed = raw ? JSON.parse(raw) : null;

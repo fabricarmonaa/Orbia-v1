@@ -32,6 +32,9 @@ export async function setupVite(server: Server, app: Express) {
   app.use(vite.middlewares);
 
   app.use("/{*path}", async (req, res, next) => {
+    if (req.path.startsWith("/api")) {
+      return res.status(404).json({ error: "Endpoint no encontrado", code: "API_NOT_FOUND" });
+    }
     const url = req.originalUrl;
 
     try {

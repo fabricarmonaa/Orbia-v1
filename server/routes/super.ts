@@ -63,7 +63,11 @@ const disable2faSchema = z.object({
   token: z.string().trim().min(6).max(8),
 });
 
-
+function isTotpValid(result: { valid?: boolean } | boolean | null | undefined) {
+  if (typeof result === "boolean") return result;
+  if (result && typeof result === "object" && "valid" in result) return result.valid === true;
+  return false;
+}
 
 function generateTempPassword() {
   const base = crypto.randomBytes(9).toString("base64").replace(/[^a-zA-Z0-9]/g, "");
@@ -467,7 +471,8 @@ export function registerSuperRoutes(app: Express) {
       if (!totp) {
         return res.status(400).json({ error: "Primero configurá 2FA", code: "SUPERADMIN_2FA_NOT_SETUP" });
       }
-      if (!(await verifyTotp({ token, secret: totp.secret, strategy: "totp" }))) {
+      const check = await verifyTotp({ token, secret: totp.secret, strategy: "totp", digits: 6, period: 30, algorithm: "sha1" });
+      if (!isTotpValid(check)) {
         return res.status(400).json({ error: "Código inválido", code: "SUPERADMIN_2FA_INVALID" });
       }
       await db.update(superAdminTotp).set({ enabled: true, verifiedAt: new Date(), updatedAt: new Date() }).where(eq(superAdminTotp.superAdminId, req.auth!.userId));
@@ -495,7 +500,8 @@ export function registerSuperRoutes(app: Express) {
       if (!totp?.enabled) {
         return res.status(400).json({ error: "2FA no está habilitado", code: "SUPERADMIN_2FA_NOT_ENABLED" });
       }
-      if (!(await verifyTotp({ token, secret: totp.secret, strategy: "totp" }))) {
+      const check = await verifyTotp({ token, secret: totp.secret, strategy: "totp", digits: 6, period: 30, algorithm: "sha1" });
+      if (!isTotpValid(check)) {
         return res.status(400).json({ error: "Código inválido", code: "SUPERADMIN_2FA_INVALID" });
       }
 

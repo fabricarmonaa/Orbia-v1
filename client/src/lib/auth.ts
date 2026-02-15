@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { parseApiError } from "@/lib/api-errors";
+import { withApiBase } from "@/lib/api-base";
 
 export interface AuthUser {
   id: number;
@@ -128,7 +129,7 @@ export async function gracefulLogout(reason: LogoutReason = "manual") {
         const controller = new AbortController();
         const timeout = window.setTimeout(() => controller.abort(), 2000);
         try {
-          await fetch("/api/auth/logout", {
+          await fetch(withApiBase("/api/auth/logout"), {
             method: "POST",
             headers: { Authorization: `Bearer ${token}` },
             signal: controller.signal,
@@ -253,7 +254,7 @@ export function authFetch(url: string, options: RequestInit = {}): Promise<Respo
   if (options.body && typeof options.body === "string") {
     headers["Content-Type"] = "application/json";
   }
-  return fetch(url, { ...options, headers });
+  return fetch(withApiBase(url), { ...options, headers });
 }
 
 export async function apiRequest(
@@ -283,7 +284,7 @@ export async function apiRequest(
     : null;
 
   try {
-    const res = await fetch(url, {
+    const res = await fetch(withApiBase(url), {
       method,
       headers,
       body: data ? JSON.stringify(data) : undefined,

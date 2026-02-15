@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Truck } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { parseApiError } from "@/lib/api-errors";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 export default function DeliveryLogin() {
@@ -25,10 +26,11 @@ export default function DeliveryLogin() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tenantCode, dni, pin }),
       });
-      const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || "Error de autenticación");
+        const info = await parseApiError(res);
+        throw new Error(info.message);
       }
+      const data = await res.json();
       localStorage.setItem("delivery_token", data.token);
       localStorage.setItem("delivery_agent", JSON.stringify(data.agent));
       localStorage.setItem("delivery_tenant_name", data.tenantName || "");
@@ -87,7 +89,7 @@ export default function DeliveryLogin() {
                 data-testid="input-delivery-pin"
               />
             </div>
-            <Button type="submit" className="w-full" disabled={loading} data-testid="button-delivery-login">
+            <Button className="w-full" disabled={loading} data-testid="button-delivery-login">
               {loading ? "Ingresando..." : "Ingresar"}
             </Button>
           </form>
