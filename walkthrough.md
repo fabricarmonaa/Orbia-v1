@@ -99,3 +99,17 @@
 - [ ] **Token expirado**: usar token vencido, disparar request, validar redirección única a login con mensaje de sesión expirada.
 - [ ] **Cerrar pestaña (Alt+F4)**: con STT o PDF preview en curso, cerrar pestaña y validar ausencia de spam/loops.
 - [ ] **Offline/Online**: desconectar internet, validar pausa sin loops; reconectar y confirmar recuperación sin ráfaga de requests.
+
+## PWA multi-panel (Tenant / Delivery / Owner)
+- [ ] Abrir `/app` y verificar en Chrome DevTools > Application que `manifest-tenant.json` está activo (name: **Orbia**, `start_url:/app`, `scope:/app`).
+- [ ] Abrir `/delivery` y verificar `manifest-delivery.json` (name: **Orbia Delivery**, `start_url:/delivery`, `scope:/delivery`).
+- [ ] Abrir `/owner` (o `/super`) y verificar `manifest-owner.json` (name: **Orbia Admin**, `start_url:/owner`, `scope:/owner`).
+- [ ] Instalar cada panel y validar nombre/ícono correctos y apertura dentro del scope.
+
+## SuperAdmin hardening (allowlist + lockout + 2FA + credenciales)
+- [ ] Configurar `SUPERADMIN_IP_ALLOWLIST` y `TRUST_PROXY` (si aplica), probar login super desde IP fuera de lista y validar `403 SUPERADMIN_IP_BLOCKED`.
+- [ ] Forzar intentos fallidos de login super hasta lockout y validar `429 SUPERADMIN_LOCKED` + `secondsRemaining`.
+- [ ] Desde Owner > Seguridad: ejecutar `Configurar 2FA`, verificar token, re-login con `totpCode` requerido.
+- [ ] Intentar login sin TOTP con 2FA activo y validar `SUPERADMIN_2FA_REQUIRED`.
+- [ ] Cambiar email/contraseña de superadmin con contraseña actual y validar login con nuevas credenciales.
+- [ ] Probar contraseña nueva débil y validar rechazo humano por política de seguridad.

@@ -1,11 +1,15 @@
 import type { Express } from "express";
 import { storage } from "../storage";
 import { z } from "zod";
-import { superAuth, hashPassword } from "../auth";
+import { superAuth, hashPassword, comparePassword } from "../auth";
 import { profileUpload } from "./uploads";
 import { handleSingleUpload } from "../middleware/upload-guards";
 import { createRateLimiter } from "../middleware/rate-limit";
 import crypto from "crypto";
+import { db } from "../db";
+import { superAdminTotp, superAdminAuditLogs, users } from "@shared/schema";
+import { eq } from "drizzle-orm";
+import { generateSecret, generateURI, verify as verifyTotp } from "otplib";
 
 const createTenantSchema = z.object({
   code: z.string().trim().min(2).max(40),
@@ -38,6 +42,27 @@ const setPasswordSchema = z.object({
 const deleteSchema = z.object({
   confirmText: z.string().trim().min(2).max(200),
 });
+
+const updateSuperCredentialsSchema = z.object({
+  currentPassword: z.string().min(6).max(128),
+  newEmail: z.string().trim().email().max(120).optional(),
+  newPassword: z.string().min(10).max(128).regex(/[A-Z]/, "Debe incluir una mayúscula").regex(/[0-9]/, "Debe incluir un número").optional(),
+});
+
+const setup2faSchema = z.object({
+  accountLabel: z.string().trim().max(120).optional(),
+});
+
+const verify2faSchema = z.object({
+  token: z.string().trim().min(6).max(8),
+});
+
+const disable2faSchema = z.object({
+  currentPassword: z.string().min(6).max(128),
+  token: z.string().trim().min(6).max(8),
+});
+
+
 
 function generateTempPassword() {
   const base = crypto.randomBytes(9).toString("base64").replace(/[^a-zA-Z0-9]/g, "");
@@ -333,6 +358,143 @@ export function registerSuperRoutes(app: Express) {
       res.status(500).json({ error: err.message });
     }
   });
+
+  app.get("/api/super/security", superAuth, async (req, res) => {
+    try {
+      const [totp] = await db.select().from(superAdminTotp).where(eq(superAdminTotp.superAdminId, req.auth!.userId)).limit(1);
+      const user = await storage.getSuperAdminByEmail(req.auth!.email);
+      return res.json({
+        data: {
+          email: user?.email || req.auth!.email,
+          twoFactorEnabled: !!totp?.enabled,
+          twoFactorVerifiedAt: totp?.verifiedAt || null,
+        },
+      });
+    } catch {
+      return res.status(500).json({ error: "No se pudo cargar seguridad", code: "SUPER_SECURITY_READ_ERROR" });
+    }
+  });
+
+  app.put("/api/super/credentials", superAuth, async (req, res) => {
+    try {
+      const { currentPassword, newEmail, newPassword } = updateSuperCredentialsSchema.parse(req.body || {});
+      const user = await storage.getSuperAdminByEmail(req.auth!.email);
+      if (!user) {
+        return res.status(404).json({ error: "Super admin no encontrado", code: "SUPERADMIN_NOT_FOUND" });
+      }
+      const ok = await comparePassword(currentPassword, user.password);
+      if (!ok) {
+        return res.status(401).json({ error: "La contraseña actual es incorrecta", code: "SUPERADMIN_CURRENT_PASSWORD_INVALID" });
+      }
+
+      const payload: any = {};
+      if (newEmail && newEmail !== user.email) {
+        payload.email = newEmail;
+      }
+      if (newPassword) {
+        payload.password = await hashPassword(newPassword);
+      }
+
+      if (!Object.keys(payload).length) {
+        return res.status(400).json({ error: "No hay cambios para guardar", code: "SUPERADMIN_NO_CHANGES" });
+      }
+
+      await db.update(users).set(payload).where(eq(users.id, user.id));
+      await db.insert(superAdminAuditLogs).values({
+        superAdminId: user.id,
+        action: "SUPERADMIN_CREDENTIALS_UPDATED",
+        metadata: { changedEmail: !!payload.email, changedPassword: !!payload.password },
+      });
+
+      return res.json({ ok: true, code: "SUPERADMIN_CREDENTIALS_UPDATED" });
+    } catch (err: any) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ error: "Datos inválidos", code: "SUPERADMIN_CREDENTIALS_INVALID", details: err.errors });
+      }
+      return res.status(500).json({ error: "No se pudieron actualizar credenciales", code: "SUPERADMIN_CREDENTIALS_ERROR" });
+    }
+  });
+
+  app.post("/api/super/2fa/setup", superAuth, async (req, res) => {
+    try {
+      const { accountLabel } = setup2faSchema.parse(req.body || {});
+      const user = await storage.getSuperAdminByEmail(req.auth!.email);
+      if (!user) return res.status(404).json({ error: "Super admin no encontrado", code: "SUPERADMIN_NOT_FOUND" });
+
+      const secret = generateSecret();
+      const label = accountLabel || user.email;
+      const otpauthUrl = generateURI({ strategy: "totp", label, issuer: "Orbia Admin", secret });
+
+      await db
+        .insert(superAdminTotp)
+        .values({ superAdminId: user.id, secret, enabled: false, updatedAt: new Date() })
+        .onConflictDoUpdate({
+          target: [superAdminTotp.superAdminId],
+          set: { secret, enabled: false, verifiedAt: null, updatedAt: new Date() },
+        });
+
+      await db.insert(superAdminAuditLogs).values({
+        superAdminId: user.id,
+        action: "SUPERADMIN_2FA_SETUP",
+        metadata: { label },
+      });
+
+      return res.json({ data: { otpauthUrl, qrData: otpauthUrl } });
+    } catch {
+      return res.status(500).json({ error: "No se pudo iniciar configuración de 2FA", code: "SUPERADMIN_2FA_SETUP_ERROR" });
+    }
+  });
+
+  app.post("/api/super/2fa/verify", superAuth, async (req, res) => {
+    try {
+      const { token } = verify2faSchema.parse(req.body || {});
+      const [totp] = await db.select().from(superAdminTotp).where(eq(superAdminTotp.superAdminId, req.auth!.userId)).limit(1);
+      if (!totp) {
+        return res.status(400).json({ error: "Primero configurá 2FA", code: "SUPERADMIN_2FA_NOT_SETUP" });
+      }
+      if (!(await verifyTotp({ token, secret: totp.secret, strategy: "totp" }))) {
+        return res.status(400).json({ error: "Código inválido", code: "SUPERADMIN_2FA_INVALID" });
+      }
+      await db.update(superAdminTotp).set({ enabled: true, verifiedAt: new Date(), updatedAt: new Date() }).where(eq(superAdminTotp.superAdminId, req.auth!.userId));
+      await db.insert(superAdminAuditLogs).values({ superAdminId: req.auth!.userId, action: "SUPERADMIN_2FA_ENABLED", metadata: {} });
+      return res.json({ ok: true, code: "SUPERADMIN_2FA_ENABLED" });
+    } catch (err: any) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ error: "Token inválido", code: "SUPERADMIN_2FA_VERIFY_INVALID" });
+      }
+      return res.status(500).json({ error: "No se pudo verificar 2FA", code: "SUPERADMIN_2FA_VERIFY_ERROR" });
+    }
+  });
+
+  app.post("/api/super/2fa/disable", superAuth, async (req, res) => {
+    try {
+      const { currentPassword, token } = disable2faSchema.parse(req.body || {});
+      const user = await storage.getSuperAdminByEmail(req.auth!.email);
+      if (!user) return res.status(404).json({ error: "Super admin no encontrado", code: "SUPERADMIN_NOT_FOUND" });
+      const passwordOk = await comparePassword(currentPassword, user.password);
+      if (!passwordOk) {
+        return res.status(401).json({ error: "La contraseña actual es incorrecta", code: "SUPERADMIN_CURRENT_PASSWORD_INVALID" });
+      }
+
+      const [totp] = await db.select().from(superAdminTotp).where(eq(superAdminTotp.superAdminId, user.id)).limit(1);
+      if (!totp?.enabled) {
+        return res.status(400).json({ error: "2FA no está habilitado", code: "SUPERADMIN_2FA_NOT_ENABLED" });
+      }
+      if (!(await verifyTotp({ token, secret: totp.secret, strategy: "totp" }))) {
+        return res.status(400).json({ error: "Código inválido", code: "SUPERADMIN_2FA_INVALID" });
+      }
+
+      await db.update(superAdminTotp).set({ enabled: false, updatedAt: new Date() }).where(eq(superAdminTotp.superAdminId, user.id));
+      await db.insert(superAdminAuditLogs).values({ superAdminId: user.id, action: "SUPERADMIN_2FA_DISABLED", metadata: {} });
+      return res.json({ ok: true, code: "SUPERADMIN_2FA_DISABLED" });
+    } catch (err: any) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ error: "Datos inválidos", code: "SUPERADMIN_2FA_DISABLE_INVALID" });
+      }
+      return res.status(500).json({ error: "No se pudo desactivar 2FA", code: "SUPERADMIN_2FA_DISABLE_ERROR" });
+    }
+  });
+
 
   app.post(
     "/api/super/config/avatar",

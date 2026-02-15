@@ -15,3 +15,4 @@ export * from './schema/branding';
 export * from './schema/pdf-settings';
 
 export * from './schema/metrics';
+export * from './schema/super-security';

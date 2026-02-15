@@ -24,6 +24,27 @@ function unauthorizedResponse(res: Response, type: "required" | "expired" | "inv
 
 
 
+
+
+export function getClientIp(req: Request) {
+  const trustProxy = process.env.TRUST_PROXY === "true";
+  if (trustProxy) {
+    const forwarded = req.headers["x-forwarded-for"];
+    if (typeof forwarded === "string" && forwarded.length > 0) {
+      return forwarded.split(",")[0].trim();
+    }
+  }
+  return req.ip || req.socket.remoteAddress || "unknown";
+}
+
+export function isIpAllowedForSuperAdmin(req: Request) {
+  const raw = (process.env.SUPERADMIN_IP_ALLOWLIST || "").trim();
+  if (!raw) return true;
+  const allow = raw.split(",").map((x) => x.trim()).filter(Boolean);
+  const ip = getClientIp(req);
+  return allow.includes(ip);
+}
+
 function buildUpgradeUrl(tenantCode?: string | null) {
   if (!tenantCode) return "https://wa.me/5492236979026";
   const text = `Hola! Mi código de negocio es ${tenantCode} y quiero mejorar mi plan`;
@@ -124,6 +145,9 @@ declare global {
 
 export function superAuth(req: Request, res: Response, next: NextFunction) {
   try {
+    if (!isIpAllowedForSuperAdmin(req)) {
+      return res.status(403).json({ error: "Acceso restringido", code: "SUPERADMIN_IP_BLOCKED" });
+    }
     const authHeader = req.headers.authorization;
     if (!authHeader?.startsWith("Bearer ")) {
       return unauthorizedResponse(res, "required");

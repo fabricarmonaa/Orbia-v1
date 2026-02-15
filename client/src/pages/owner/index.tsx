@@ -151,6 +151,16 @@ export default function OwnerDashboard() {
     adminName: "",
   });
 
+  const [securityEmail, setSecurityEmail] = useState("");
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newSecurityEmail, setNewSecurityEmail] = useState("");
+  const [newSecurityPassword, setNewSecurityPassword] = useState("");
+  const [confirmSecurityPassword, setConfirmSecurityPassword] = useState("");
+  const [savingSecurity, setSavingSecurity] = useState(false);
+  const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
+  const [twoFactorQrData, setTwoFactorQrData] = useState<string | null>(null);
+  const [twoFactorToken, setTwoFactorToken] = useState("");
+
   useEffect(() => {
     if (!isAuthenticated || !user?.isSuperAdmin) {
       setLocation("/owner/login");
@@ -172,6 +182,11 @@ export default function OwnerDashboard() {
       if (data.data?.avatarUrl) {
         setAvatarUrl(data.data.avatarUrl);
       }
+      const secRes = await apiRequest("GET", "/api/super/security");
+      const secData = await secRes.json();
+      setSecurityEmail(secData.data?.email || "");
+      setNewSecurityEmail(secData.data?.email || "");
+      setTwoFactorEnabled(!!secData.data?.twoFactorEnabled);
     } catch {
     }
   }
@@ -485,6 +500,74 @@ export default function OwnerDashboard() {
 
   if (!isAuthenticated || !user?.isSuperAdmin) return null;
 
+
+  async function saveSuperCredentials(e: React.FormEvent) {
+    e.preventDefault();
+    if (!currentPassword) {
+      toast({ title: "Error", description: "Ingresá tu contraseña actual", variant: "destructive" });
+      return;
+    }
+    if (newSecurityPassword && newSecurityPassword !== confirmSecurityPassword) {
+      toast({ title: "Error", description: "Las contraseñas no coinciden", variant: "destructive" });
+      return;
+    }
+    setSavingSecurity(true);
+    try {
+      await apiRequest("PUT", "/api/super/credentials", {
+        currentPassword,
+        newEmail: newSecurityEmail !== securityEmail ? newSecurityEmail : undefined,
+        newPassword: newSecurityPassword || undefined,
+      });
+      toast({ title: "Seguridad actualizada" });
+      setSecurityEmail(newSecurityEmail);
+      setCurrentPassword("");
+      setNewSecurityPassword("");
+      setConfirmSecurityPassword("");
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally {
+      setSavingSecurity(false);
+    }
+  }
+
+  async function setupTwoFactor() {
+    try {
+      const res = await apiRequest("POST", "/api/super/2fa/setup", { accountLabel: securityEmail });
+      const data = await res.json();
+      setTwoFactorQrData(data.data?.qrData || null);
+      toast({ title: "2FA listo para verificar" });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    }
+  }
+
+  async function verifyTwoFactor() {
+    try {
+      await apiRequest("POST", "/api/super/2fa/verify", { token: twoFactorToken });
+      setTwoFactorEnabled(true);
+      setTwoFactorQrData(null);
+      setTwoFactorToken("");
+      toast({ title: "2FA habilitado" });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    }
+  }
+
+  async function disableTwoFactor() {
+    if (!currentPassword) {
+      toast({ title: "Error", description: "Ingresá tu contraseña actual", variant: "destructive" });
+      return;
+    }
+    try {
+      await apiRequest("POST", "/api/super/2fa/disable", { currentPassword, token: twoFactorToken });
+      setTwoFactorEnabled(false);
+      setTwoFactorToken("");
+      toast({ title: "2FA desactivado" });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    }
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b bg-card sticky top-0 z-50">
@@ -747,6 +830,7 @@ export default function OwnerDashboard() {
           <TabsList>
             <TabsTrigger value="tenants" data-testid="tab-tenants">Negocios</TabsTrigger>
             <TabsTrigger value="subscriptions" data-testid="tab-subscriptions">Suscripciones</TabsTrigger>
+            <TabsTrigger value="security" data-testid="tab-security">Seguridad</TabsTrigger>
           </TabsList>
 
           <TabsContent value="tenants" className="space-y-4">
@@ -1096,6 +1180,64 @@ export default function OwnerDashboard() {
               </div>
             )}
           </TabsContent>
+
+          <TabsContent value="security" className="space-y-4">
+            <h2 className="text-xl font-semibold">Seguridad SuperAdmin</h2>
+            <Card>
+              <CardHeader>
+                <h3 className="font-semibold">Credenciales</h3>
+              </CardHeader>
+              <CardContent>
+                <form onSubmit={saveSuperCredentials} className="space-y-3 max-w-xl">
+                  <div className="space-y-1">
+                    <Label>Email</Label>
+                    <Input value={newSecurityEmail} onChange={(e) => setNewSecurityEmail(e.target.value)} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Contraseña actual</Label>
+                    <Input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Nueva contraseña</Label>
+                    <Input type="password" value={newSecurityPassword} onChange={(e) => setNewSecurityPassword(e.target.value)} placeholder="Mínimo 10, una mayúscula y un número" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Confirmar nueva contraseña</Label>
+                    <Input type="password" value={confirmSecurityPassword} onChange={(e) => setConfirmSecurityPassword(e.target.value)} />
+                  </div>
+                  <Button type="submit" disabled={savingSecurity}>{savingSecurity ? "Guardando..." : "Guardar cambios"}</Button>
+                </form>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <h3 className="font-semibold">2FA (TOTP)</h3>
+              </CardHeader>
+              <CardContent className="space-y-3 max-w-xl">
+                <p className="text-sm text-muted-foreground">Estado: {twoFactorEnabled ? "Habilitado" : "Deshabilitado"}</p>
+                {!twoFactorEnabled ? (
+                  <Button variant="outline" onClick={setupTwoFactor}>Configurar 2FA</Button>
+                ) : null}
+                {twoFactorQrData ? (
+                  <div className="space-y-2">
+                    <Label>URL OTP (cargala en Authenticator)</Label>
+                    <Input value={twoFactorQrData} readOnly />
+                  </div>
+                ) : null}
+                <div className="space-y-1">
+                  <Label>Código 2FA</Label>
+                  <Input value={twoFactorToken} onChange={(e) => setTwoFactorToken(e.target.value)} placeholder="123456" />
+                </div>
+                {!twoFactorEnabled ? (
+                  <Button onClick={verifyTwoFactor}>Verificar y habilitar</Button>
+                ) : (
+                  <Button variant="destructive" onClick={disableTwoFactor}>Desactivar 2FA</Button>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
         </Tabs>
       </main>
     </div>

@@ -15,6 +15,7 @@ export default function SuperLogin() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [totpCode, setTotpCode] = useState("");
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
   const { appBranding } = useBranding();
@@ -26,7 +27,7 @@ export default function SuperLogin() {
       const res = await fetch("/api/auth/super/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, totpCode: totpCode || undefined }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Error de autenticación");
@@ -70,7 +71,7 @@ export default function SuperLogin() {
                 <Input
                   id="email"
                   type="email"
-                  placeholder="admin@orbia.app"
+                  placeholder="tu-email@dominio.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
@@ -101,6 +102,19 @@ export default function SuperLogin() {
                   </Button>
                 </div>
               </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="totp">Código 2FA (si está habilitado)</Label>
+                <Input
+                  id="totp"
+                  inputMode="numeric"
+                  placeholder="123456"
+                  value={totpCode}
+                  onChange={(e) => setTotpCode(e.target.value)}
+                  data-testid="input-totp"
+                />
+              </div>
+
               <Button
                 type="submit"
                 className="w-full"
