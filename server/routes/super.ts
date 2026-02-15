@@ -83,7 +83,7 @@ export function registerSuperRoutes(app: Express) {
       const data = await storage.getPlans();
       res.json({ data });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -92,7 +92,7 @@ export function registerSuperRoutes(app: Express) {
       const data = await storage.getTenants();
       res.json({ data });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -145,7 +145,7 @@ export function registerSuperRoutes(app: Express) {
       if (err instanceof z.ZodError) {
         return res.status(400).json({ error: "Datos inválidos", details: err.errors });
       }
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -159,7 +159,7 @@ export function registerSuperRoutes(app: Express) {
       if (err instanceof z.ZodError) {
         return res.status(400).json({ error: "Datos inválidos", details: err.errors });
       }
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -169,7 +169,7 @@ export function registerSuperRoutes(app: Express) {
       const addons = await storage.getTenantAddons(tenantId);
       res.json({ data: addons });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -187,7 +187,7 @@ export function registerSuperRoutes(app: Express) {
       });
       res.json({ data: addon });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -206,7 +206,7 @@ export function registerSuperRoutes(app: Express) {
       });
       res.json({ data: addon });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -221,7 +221,7 @@ export function registerSuperRoutes(app: Express) {
       await storage.updateTenantActive(tenantId, true);
       res.json({ ok: true });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -243,7 +243,7 @@ export function registerSuperRoutes(app: Express) {
       if (err instanceof z.ZodError) {
         return res.status(400).json({ error: "Datos inválidos", details: err.errors });
       }
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -265,7 +265,7 @@ export function registerSuperRoutes(app: Express) {
       if (err instanceof z.ZodError) {
         return res.status(400).json({ error: "Datos inválidos", details: err.errors });
       }
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -289,7 +289,7 @@ export function registerSuperRoutes(app: Express) {
       });
       res.json({ tempPassword });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -316,7 +316,7 @@ export function registerSuperRoutes(app: Express) {
       if (err instanceof z.ZodError) {
         return res.status(400).json({ error: "Datos inválidos", details: err.errors });
       }
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -347,7 +347,7 @@ export function registerSuperRoutes(app: Express) {
       if (err instanceof z.ZodError) {
         return res.status(400).json({ error: "Datos inválidos", details: err.errors });
       }
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -356,7 +356,7 @@ export function registerSuperRoutes(app: Express) {
       const config = await storage.getSuperAdminConfig(req.auth!.userId);
       res.json({ data: config || null });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -527,7 +527,7 @@ export function registerSuperRoutes(app: Express) {
       const versionedUrl = `${avatarUrl}?v=${new Date().getTime()}`;
       res.json({ data: { ...config, avatarUrl: versionedUrl } });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 }

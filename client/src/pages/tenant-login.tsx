@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Building2, Eye, EyeOff } from "lucide-react";
 import { login } from "@/lib/auth";
+import { parseApiError } from "@/lib/api-errors";
 import { useToast } from "@/hooks/use-toast";
 import { useBranding } from "@/context/BrandingContext";
 import { BrandLogo } from "@/components/branding/BrandLogo";

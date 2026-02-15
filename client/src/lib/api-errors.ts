@@ -21,6 +21,16 @@ const DEFAULT_MESSAGES: Record<string, string> = {
   INTERNAL_ERROR: "Ocurrió un problema inesperado. Intentá nuevamente en unos segundos.",
 };
 
+function sanitizeClientMessage(input: string) {
+  if (!input) return "Ocurrió un error inesperado.";
+  const hasPathLeak = /([A-Za-z]:\\|\/Users\/|\\\\)/.test(input);
+  const hasStackLeak = /( at .+\(.+\)|webpack|vite\/dist|node_modules|\.tsx?:\d+)/i.test(input);
+  if (hasPathLeak || hasStackLeak) {
+    return "Ocurrió un problema inesperado. Intentá nuevamente.";
+  }
+  return input;
+}
+
 function formatMaxMb(bytes?: number) {
   if (!bytes) return null;
   const mb = bytes / (1024 * 1024);
@@ -41,7 +51,7 @@ export async function parseApiError(
 
   const code = parsed?.code;
   const fallbackMessage = parsed?.error || parsed?.message || raw || res.statusText;
-  let message = fallbackMessage;
+  let message = sanitizeClientMessage(String(fallbackMessage || ""));
 
   if (code && DEFAULT_MESSAGES[code]) {
     message = DEFAULT_MESSAGES[code];
@@ -60,5 +70,5 @@ export async function parseApiError(
       : "Archivo demasiado grande. Verificá el tamaño permitido.";
   }
 
-  return { message, code, status: res.status };
+  return { message: sanitizeClientMessage(message), code, status: res.status };
 }

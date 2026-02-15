@@ -67,7 +67,7 @@ export function registerTrackingRoutes(app: Express) {
         },
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 }

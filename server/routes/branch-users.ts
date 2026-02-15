@@ -1,9 +1,9 @@
 import type { Express } from "express";
 import { storage } from "../storage";
-import { tenantAuth, blockBranchScope, hashPassword, requireTenantAdmin } from "../auth";
+import { tenantAuth, blockBranchScope, hashPassword, requireTenantAdmin, requireFeature, requirePlanCodes } from "../auth";
 
 export function registerBranchUserRoutes(app: Express) {
-  app.get("/api/branch-users", tenantAuth, requireTenantAdmin, blockBranchScope, async (req, res) => {
+  app.get("/api/branch-users", tenantAuth, requireTenantAdmin, blockBranchScope, requireFeature("branches"), requirePlanCodes(["ESCALA"]), async (req, res) => {
     try {
       const tenantId = req.auth!.tenantId!;
       const branchId = req.query.branchId ? parseInt(req.query.branchId as string) : undefined;
@@ -11,11 +11,11 @@ export function registerBranchUserRoutes(app: Express) {
       const safeUsers = users.map((u: any) => { const { password: _, ...rest } = u; return rest; });
       res.json({ data: safeUsers });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
-  app.post("/api/branch-users", tenantAuth, requireTenantAdmin, blockBranchScope, async (req, res) => {
+  app.post("/api/branch-users", tenantAuth, requireTenantAdmin, blockBranchScope, requireFeature("branches"), requirePlanCodes(["ESCALA"]), async (req, res) => {
     try {
       const tenantId = req.auth!.tenantId!;
       const { branchId, fullName, email, password, phone } = req.body;
@@ -58,11 +58,11 @@ export function registerBranchUserRoutes(app: Express) {
       });
       res.status(201).json({ data: safeUser });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
-  app.patch("/api/branch-users/:id", tenantAuth, requireTenantAdmin, blockBranchScope, async (req, res) => {
+  app.patch("/api/branch-users/:id", tenantAuth, requireTenantAdmin, blockBranchScope, requireFeature("branches"), requirePlanCodes(["ESCALA"]), async (req, res) => {
     try {
       const tenantId = req.auth!.tenantId!;
       const userId = parseInt(req.params.id as string);
@@ -94,7 +94,7 @@ export function registerBranchUserRoutes(app: Express) {
       const { password: _, ...safeUser } = user;
       res.json({ data: safeUser });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -103,6 +103,8 @@ export function registerBranchUserRoutes(app: Express) {
     tenantAuth,
     requireTenantAdmin,
     blockBranchScope,
+    requireFeature("branches"),
+    requirePlanCodes(["ESCALA"]),
     async (req, res) => {
     try {
       const tenantId = req.auth!.tenantId!;
@@ -126,7 +128,7 @@ export function registerBranchUserRoutes(app: Express) {
 
       res.json({ data: { temporaryPassword: pin } });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -135,6 +137,8 @@ export function registerBranchUserRoutes(app: Express) {
     tenantAuth,
     requireTenantAdmin,
     blockBranchScope,
+    requireFeature("branches"),
+    requirePlanCodes(["ESCALA"]),
     async (req, res) => {
       try {
         const tenantId = req.auth!.tenantId!;
@@ -159,7 +163,7 @@ export function registerBranchUserRoutes(app: Express) {
         });
         res.json({ data: deleted });
       } catch (err: any) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
       }
     }
   );

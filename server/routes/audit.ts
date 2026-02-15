@@ -32,7 +32,7 @@ export function registerAuditRoutes(app: Express) {
       if (err instanceof z.ZodError) {
         return res.status(400).json({ error: "Datos inválidos", details: err.errors });
       }
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 }

@@ -26,7 +26,7 @@ export function registerBranchRoutes(app: Express) {
       const data = await storage.getBranches(tenantId);
       res.json({ data });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -59,7 +59,7 @@ export function registerBranchRoutes(app: Express) {
       });
       res.status(201).json({ data });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -82,7 +82,7 @@ export function registerBranchRoutes(app: Express) {
       const data = await storage.getOrdersByBranch(tenantId, branchId);
       res.json({ data });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -105,7 +105,7 @@ export function registerBranchRoutes(app: Express) {
       const data = await storage.getCashMovementsByBranch(tenantId, branchId);
       res.json({ data });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -152,7 +152,7 @@ export function registerBranchRoutes(app: Express) {
         });
         res.json({ data: deleted });
       } catch (err: any) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
       }
     }
   );
@@ -162,7 +162,7 @@ export function registerBranchRoutes(app: Express) {
       const data = await storage.getOrderStatuses(req.auth!.tenantId!);
       res.json({ data });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 }

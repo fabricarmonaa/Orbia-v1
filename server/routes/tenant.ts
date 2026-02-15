@@ -46,7 +46,7 @@ export function registerTenantRoutes(app: Express) {
         },
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -66,7 +66,7 @@ export function registerTenantRoutes(app: Express) {
       const plan = await getTenantPlan(req.auth!.tenantId!);
       res.json({ data: plan || null });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -96,7 +96,7 @@ export function registerTenantRoutes(app: Express) {
       const config = await storage.getConfig(req.auth!.tenantId!);
       res.json({ data: config || null });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -127,7 +127,7 @@ export function registerTenantRoutes(app: Express) {
       if (err instanceof z.ZodError) {
         return res.status(400).json({ error: "Datos inválidos", details: err.errors });
       }
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -169,7 +169,7 @@ export function registerTenantRoutes(app: Express) {
         },
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -191,7 +191,7 @@ export function registerTenantRoutes(app: Express) {
         const versionedUrl = `${logoUrl}?v=${new Date().getTime()}`;
         res.json({ data: { ...config, logoUrl: versionedUrl } });
       } catch (err: any) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
       }
   });
 
@@ -237,7 +237,7 @@ export function registerTenantRoutes(app: Express) {
         },
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -250,7 +250,7 @@ export function registerTenantRoutes(app: Express) {
       }
       res.json({ data: result });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 }

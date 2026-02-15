@@ -35,7 +35,7 @@ export function registerProductRoutes(app: Express) {
       const data = await storage.getProductCategories(req.auth!.tenantId!);
       res.json({ data });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -53,7 +53,7 @@ export function registerProductRoutes(app: Express) {
       });
       res.status(201).json({ data });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -103,7 +103,7 @@ export function registerProductRoutes(app: Express) {
       if (err instanceof z.ZodError) {
         return res.status(400).json({ error: "Filtros inválidos. Revisá los valores ingresados.", code: "PRODUCT_FILTERS_INVALID" });
       }
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -135,7 +135,7 @@ export function registerProductRoutes(app: Express) {
       if (err instanceof z.ZodError) {
         return res.status(400).json({ error: "Datos inválidos", details: err.errors });
       }
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -172,7 +172,7 @@ export function registerProductRoutes(app: Express) {
       const movements = await storage.getStockMovements(productId, tenantId);
       res.json({ data: { stockByBranch: stockView, movements, stockMode: "by_branch" } });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -224,7 +224,7 @@ export function registerProductRoutes(app: Express) {
       const updatedStock = await storage.getProductStockByBranch(productId, tenantId);
       res.json({ data: updatedStock });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -260,7 +260,7 @@ export function registerProductRoutes(app: Express) {
       if (err instanceof z.ZodError) {
         return res.status(400).json({ error: "Datos inválidos", details: err.errors });
       }
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -279,7 +279,7 @@ export function registerProductRoutes(app: Express) {
       await storage.toggleProductActive(productId, tenantId, !existing.isActive);
       res.json({ data: { isActive: !existing.isActive } });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 

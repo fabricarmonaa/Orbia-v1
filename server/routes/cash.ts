@@ -14,7 +14,7 @@ const cashMovementSchema = z.object({
   expenseDefinitionId: z.coerce.number().int().positive().optional().nullable(),
   sessionId: z.coerce.number().int().positive().optional().nullable(),
   branchId: z.coerce.number().int().positive().optional().nullable(),
-});
+}).strict();
 
 export function registerCashRoutes(app: Express) {
   app.get("/api/cash/sessions", tenantAuth, requireFeature("cash_sessions"), enforceBranchScope, async (req, res) => {
@@ -33,6 +33,10 @@ export function registerCashRoutes(app: Express) {
     try {
       const tenantId = req.auth!.tenantId!;
       const branchId = req.auth!.scope === "BRANCH" ? req.auth!.branchId : (req.body.branchId || null);
+      if (branchId) {
+        const branch = await storage.getBranchById(branchId, tenantId);
+        if (!branch) return res.status(404).json({ error: "Sucursal no encontrada", code: "BRANCH_NOT_FOUND" });
+      }
       const existing = await storage.getOpenSession(tenantId, branchId);
       if (existing) {
         return res.status(400).json({ error: "Ya hay una caja abierta para esta sucursal", code: "CASH_SESSION_ALREADY_OPEN" });
@@ -104,6 +108,10 @@ export function registerCashRoutes(app: Express) {
     try {
       const tenantId = req.auth!.tenantId!;
       const branchId = req.auth!.scope === "BRANCH" ? req.auth!.branchId : (req.query.branchId ? parseInt(req.query.branchId as string) : null);
+      if (branchId) {
+        const branch = await storage.getBranchById(branchId, tenantId);
+        if (!branch) return res.status(404).json({ error: "Sucursal no encontrada", code: "BRANCH_NOT_FOUND" });
+      }
       const session = await storage.getOpenSession(tenantId, branchId);
       res.json({ data: session || null });
     } catch {
@@ -129,6 +137,10 @@ export function registerCashRoutes(app: Express) {
       const tenantId = req.auth!.tenantId!;
       const userId = req.auth!.userId;
       const branchId = req.auth!.scope === "BRANCH" ? req.auth!.branchId : (payload.branchId || null);
+      if (branchId) {
+        const branch = await storage.getBranchById(branchId, tenantId);
+        if (!branch) return res.status(404).json({ error: "Sucursal no encontrada", code: "BRANCH_NOT_FOUND" });
+      }
       const idemKey = getIdempotencyKey(req.headers["idempotency-key"] as string | undefined);
       const requestHash = hashPayload({ ...payload, branchId });
 

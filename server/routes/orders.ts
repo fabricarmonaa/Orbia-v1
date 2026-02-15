@@ -28,7 +28,7 @@ const createOrderSchema = z.object({
   deliveryAddress: optionalText(200).nullable(),
   deliveryCity: optionalText(80).nullable(),
   deliveryAddressNotes: optionalText(200).nullable(),
-});
+}).strict();
 
 const orderStatusSchema = z.object({
   statusId: z.coerce.number().int().positive(),
@@ -78,6 +78,12 @@ export function registerOrderRoutes(app: Express) {
 
       const orderNumber = await storage.getNextOrderNumber(tenantId);
       const branchId = req.auth!.scope === "BRANCH" ? req.auth!.branchId : (payload.branchId || null);
+      if (branchId) {
+        const branch = await storage.getBranchById(branchId, tenantId);
+        if (!branch) {
+          return res.status(404).json({ error: "Sucursal no encontrada", code: "BRANCH_NOT_FOUND" });
+        }
+      }
       const data = await storage.createOrder({
         tenantId,
         orderNumber,

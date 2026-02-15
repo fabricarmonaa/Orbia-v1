@@ -50,7 +50,7 @@ export function registerUploadRoutes(app: Express) {
           : logoUrl;
         res.json({ url: versionedUrl });
       } catch (err: any) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
       }
     }
   );
@@ -70,7 +70,7 @@ export function registerUploadRoutes(app: Express) {
           : logoUrl;
         res.json({ url: versionedUrl });
       } catch (err: any) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
       }
     }
   );

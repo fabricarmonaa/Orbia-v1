@@ -28,6 +28,8 @@ function mapSttError(status: number, body?: any) {
   return { status: status >= 500 ? 500 : status, code: body?.code || "STT_PROCESSING_ERROR", error: "No se pudo transcribir. Probá de nuevo o hablá más cerca del micrófono." };
 }
 
+
+
 async function callAiStt(aiServiceUrl: string, audio: string, context: string, signal: AbortSignal) {
   const aiRes = await fetch(`${aiServiceUrl}/api/stt`, {
     method: "POST",
@@ -145,12 +147,18 @@ export function registerSttRoutes(app: Express) {
 
   app.post("/api/ai/apply", tenantAuth, requireFeature("stt"), requirePlanCodes(["ESCALA"]), enforceBranchScope, async (req, res) => {
     try {
-      const { context, intent, logId } = req.body;
-      if (!context || !intent) {
-        return res.status(400).json({ error: "Contexto e intent requeridos" });
+      const { context, intent, logId } = req.body || {};
+      if (!context || !intent || typeof context !== "string" || typeof intent !== "object") {
+        return res.status(400).json({ error: "Datos inválidos. Revisá los campos e intentá de nuevo.", code: "INVALID_PAYLOAD" });
       }
       const tenantId = req.auth!.tenantId!;
       const branchId = req.auth!.scope === "BRANCH" ? req.auth!.branchId : (intent.branchId || null);
+      if (branchId) {
+        const branch = await storage.getBranchById(Number(branchId), tenantId);
+        if (!branch) {
+          return res.status(404).json({ error: "Sucursal no encontrada", code: "BRANCH_NOT_FOUND" });
+        }
+      }
 
       const missingFields: string[] = [];
       if (context === "products" && intent.action === "create") {
@@ -164,9 +172,9 @@ export function registerSttRoutes(app: Express) {
 
       if (missingFields.length > 0) {
         return res.status(400).json({
-          error: "MISSING_FIELDS",
-          missing_fields: missingFields,
-          message: `Faltan campos requeridos: ${missingFields.join(", ")}`,
+          error: `Faltan campos requeridos: ${missingFields.join(", ")}`,
+          code: "MISSING_FIELDS",
+          missingFields,
         });
       }
 
