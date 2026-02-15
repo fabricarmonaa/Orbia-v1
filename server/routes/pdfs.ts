@@ -73,6 +73,10 @@ function isEconomicPlan(planCode?: string | null) {
   return (planCode || "").toUpperCase() === "ECONOMICO";
 }
 
+function canUseInvoiceB(planCode?: string | null) {
+  return (planCode || "").toUpperCase() === "ESCALA";
+}
+
 function normalizeInvoiceColumns(columns?: string[]) {
   if (!columns?.length) return DEFAULT_PDF_SETTINGS.invoiceColumns;
   const unique = Array.from(new Set(columns));
@@ -131,12 +135,17 @@ export function registerPdfRoutes(app: Express) {
   app.put("/api/pdfs/settings", tenantAuth, requireTenantAdmin, async (req, res) => {
     try {
       const payload = pdfSettingsSchema.parse(req.body);
+      const plan = await getTenantPlan(req.auth!.tenantId!);
+      const economic = isEconomicPlan(plan?.planCode);
+      if (payload.documentType === "INVOICE_B" && !canUseInvoiceB(plan?.planCode)) {
+        return res.status(403).json({ error: "Tu plan no incluye Factura B.", code: "PLAN_BLOCKED" });
+      }
       await storage.upsertTenantPdfSettings(req.auth!.tenantId!, {
-        documentType: payload.documentType,
+        documentType: economic ? "PRICE_LIST" : payload.documentType,
         templateKey: payload.templateKey,
         pageSize: payload.pageSize,
         orientation: payload.orientation,
-        showLogo: payload.showLogo,
+        showLogo: economic ? false : payload.showLogo,
         headerText: payload.headerText ?? undefined,
         subheaderText: payload.subheaderText ?? undefined,
         footerText: payload.footerText ?? undefined,
@@ -179,6 +188,9 @@ export function registerPdfRoutes(app: Express) {
     try {
       const documentType = req.body?.documentType || (await storage.getTenantPdfSettings(req.auth!.tenantId!)).documentType;
       const plan = await getTenantPlan(req.auth!.tenantId!);
+      if (documentType === "INVOICE_B" && !canUseInvoiceB(plan?.planCode)) {
+        return res.status(403).json({ error: "Tu plan no incluye Factura B.", code: "PLAN_BLOCKED" });
+      }
       const pdfBuffer = await generatePdfByType(req.auth!.tenantId!, documentType, plan?.planCode);
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", "inline; filename=documento.pdf");
@@ -192,6 +204,9 @@ export function registerPdfRoutes(app: Express) {
     try {
       const documentType = req.query.documentType ? String(req.query.documentType) : (await storage.getTenantPdfSettings(req.auth!.tenantId!)).documentType;
       const plan = await getTenantPlan(req.auth!.tenantId!);
+      if (documentType === "INVOICE_B" && !canUseInvoiceB(plan?.planCode)) {
+        return res.status(403).json({ error: "Tu plan no incluye Factura B.", code: "PLAN_BLOCKED" });
+      }
       const pdfBuffer = await generatePdfByType(req.auth!.tenantId!, documentType, plan?.planCode);
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", "attachment; filename=documento.pdf");

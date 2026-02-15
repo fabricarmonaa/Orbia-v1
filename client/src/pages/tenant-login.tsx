@@ -8,6 +8,7 @@ import { Building2, Eye, EyeOff } from "lucide-react";
 import { login } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { useBranding } from "@/context/BrandingContext";
+import { BrandLogo } from "@/components/branding/BrandLogo";
 
 export default function TenantLogin() {
   const [, setLocation] = useLocation();
@@ -43,16 +44,13 @@ export default function TenantLogin() {
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-md bg-primary mb-4 overflow-hidden">
-            {appBranding.orbiaLogoUrl ? (
-              <img
-                src={appBranding.orbiaLogoUrl}
-                alt={appBranding.orbiaName}
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              <Building2 className="w-8 h-8 text-primary-foreground" />
-            )}
+          <div className="flex justify-center mb-4">
+            <BrandLogo
+              src={appBranding.orbiaLogoUrl}
+              alt={appBranding.orbiaName || "ORBIA"}
+              brandName={appBranding.orbiaName || "ORBIA"}
+              variant="login"
+            />
           </div>
           <h1 className="text-2xl font-bold tracking-tight">
             {appBranding.orbiaName || "ORBIA"}

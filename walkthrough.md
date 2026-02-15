@@ -67,3 +67,22 @@
 - [ ] Tenant con plan **ECONOMICO**: exportar lista PDF y verificar watermark ORBIA en esquina inferior izquierda.
 - [ ] Tenant con plan **PROFESIONAL** o **ESCALA**: exportar lista PDF y verificar que NO aparece watermark ORBIA.
 - [ ] Verificar que el watermark no tapa contenido (tamaño pequeño y baja opacidad).
+
+
+## WhatsApp CTA (Mejorar plan)
+- [ ] Ir a Configuración → Plan y Suscripción.
+- [ ] Click en “Mejorar plan”.
+- [ ] Verificar apertura de `https://wa.me/5492236979026?...` en nueva pestaña.
+- [ ] Verificar que el texto incluya el código real del negocio.
+
+## Avatar editable (perfil usuario)
+- [ ] Ir a Configuración → Cuenta.
+- [ ] Subir imagen válida (<2MB) y confirmar actualización inmediata.
+- [ ] Verificar avatar actualizado en sidebar (cache-busting con `?v=`).
+- [ ] Probar archivo inválido/pesado y validar mensaje humano.
+
+## Gating por plan (Económico / Profesional / Escala)
+- [ ] ECONOMICO: sin links tracking externos, sin gastos definiciones, sin resumen mensual, sin Factura B.
+- [ ] PROFESIONAL: sin Sucursales, sin STT, sin Factura B.
+- [ ] ESCALA: Sucursales + STT + Factura B habilitados.
+- [ ] En bloqueos server-side, validar `code=PLAN_BLOCKED` y mensaje humano.

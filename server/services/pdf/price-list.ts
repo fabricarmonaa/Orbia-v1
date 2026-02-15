@@ -81,9 +81,9 @@ export async function generatePriceListPdf(
   const appBranding = await storage.getAppBranding();
 
   const appLogoPath = parseLocalFile(appBranding.orbiaLogoUrl);
-  const logoPath = settings.showLogo
-    ? parseLocalFile(branding.logoUrl || appBranding.orbiaLogoUrl)
-    : null;
+  const logoPath = options?.watermarkOrbia
+    ? null
+    : (settings.showLogo ? parseLocalFile(branding.logoUrl || appBranding.orbiaLogoUrl) : null);
   const primaryColor = (branding.colors as any)?.primary || "#6366f1";
 
   const products = options?.products || await storage.getProducts(tenantId);

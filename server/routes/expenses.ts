@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { z } from "zod";
 import { storage } from "../storage";
-import { tenantAuth, blockBranchScope, requireFeature, requireTenantAdmin } from "../auth";
+import { tenantAuth, blockBranchScope, requireFeature, requireTenantAdmin, requireNotPlanCodes } from "../auth";
 
 const baseExpenseDefinitionSchema = z.object({
     type: z.enum(["FIXED", "VARIABLE"]),
@@ -44,6 +44,7 @@ export function registerExpenseRoutes(app: Express) {
 
     app.get("/api/expenses/definitions",
         tenantAuth,
+        requireNotPlanCodes(["ECONOMICO"]),
         async (req, res) => {
             try {
                 const type = req.query.type ? String(req.query.type).toUpperCase() : undefined;
@@ -60,6 +61,7 @@ export function registerExpenseRoutes(app: Express) {
 
     app.post("/api/expenses/definitions",
         tenantAuth,
+        requireNotPlanCodes(["ECONOMICO"]),
         requireTenantAdmin,
         blockBranchScope,
         async (req, res) => {
@@ -87,6 +89,7 @@ export function registerExpenseRoutes(app: Express) {
 
     app.put("/api/expenses/definitions/:id",
         tenantAuth,
+        requireNotPlanCodes(["ECONOMICO"]),
         requireTenantAdmin,
         blockBranchScope,
         async (req, res) => {
@@ -121,6 +124,7 @@ export function registerExpenseRoutes(app: Express) {
 
     app.delete("/api/expenses/definitions/:id",
         tenantAuth,
+        requireNotPlanCodes(["ECONOMICO"]),
         requireTenantAdmin,
         blockBranchScope,
         async (req, res) => {

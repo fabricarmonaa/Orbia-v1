@@ -56,7 +56,7 @@ app.use((req, res, next) => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
+      if (capturedJsonResponse && process.env.NODE_ENV !== "production") {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }
 
@@ -105,7 +105,7 @@ app.use((req, res, next) => {
 
   // Tracking purge job: revoke expired tracking links every 5 minutes
   const { storage } = await import("./storage");
-  setInterval(async () => {
+  const purgeInterval = setInterval(async () => {
     try {
       const purged = await storage.purgeExpiredTracking();
       if (purged > 0) {
@@ -117,6 +117,16 @@ app.use((req, res, next) => {
   }, 5 * 60 * 1000);
 
   // Railway compatibility: use PORT env var, bind to 0.0.0.0
+  process.on("SIGTERM", () => {
+    clearInterval(purgeInterval);
+    httpServer.close(() => process.exit(0));
+  });
+
+  process.on("SIGINT", () => {
+    clearInterval(purgeInterval);
+    httpServer.close(() => process.exit(0));
+  });
+
   const PORT = parseInt(process.env.PORT || "5000");
 
   httpServer.listen(PORT, "0.0.0.0", () => {

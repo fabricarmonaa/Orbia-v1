@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator";
 import { ArrowUp, ArrowDown, RefreshCcw, Download, Save } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { usePlan } from "@/lib/plan";
 import {
   getPdfSettings,
   updatePdfSettings,
@@ -54,6 +55,9 @@ export function PriceListPdfSettings() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const { toast } = useToast();
+  const { plan } = usePlan();
+  const isEscala = (plan?.planCode || "").toUpperCase() === "ESCALA";
+  const isEconomic = (plan?.planCode || "").toUpperCase() === "ECONOMICO";
 
   useEffect(() => {
     fetchSettings();
@@ -62,6 +66,8 @@ export function PriceListPdfSettings() {
   async function fetchSettings() {
     try {
       const data = await getPdfSettings();
+      if (!isEscala && data.documentType === "INVOICE_B") data.documentType = "PRICE_LIST";
+      if (isEconomic) data.showLogo = false;
       setSettings(data);
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -184,7 +190,7 @@ export function PriceListPdfSettings() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="PRICE_LIST">Lista de precios</SelectItem>
-                    <SelectItem value="INVOICE_B">Factura B</SelectItem>
+                    {isEscala && <SelectItem value="INVOICE_B">Factura B</SelectItem>}
                   </SelectContent>
                 </Select>
               </div>

@@ -252,6 +252,9 @@ export default function SettingsPage() {
   }
 
   const isAdmin = user?.role === "admin";
+  const planCode = (plan?.planCode || "").toUpperCase();
+  const isEconomic = planCode === "ECONOMICO";
+  const isEscala = planCode === "ESCALA";
   const sections = [
     {
       id: "account",
@@ -286,6 +289,7 @@ export default function SettingsPage() {
                 resetBranding={resetBranding}
                 previewOrder={previewOrder}
                 layoutPresets={layoutPresets}
+                planCode={planCode}
               />
             ),
           },
@@ -301,7 +305,7 @@ export default function SettingsPage() {
       label: "Operativo",
       content: <OperationsSettings />,
     },
-    ...(isAdmin
+    ...(isAdmin && !isEconomic
       ? [
           {
             id: "advanced",

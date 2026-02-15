@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { z } from "zod";
 import { sql, and, eq } from "drizzle-orm";
-import { tenantAuth, requireTenantAdmin } from "../auth";
+import { tenantAuth, requireTenantAdmin, requireNotPlanCodes } from "../auth";
 import { createRateLimiter } from "../middleware/rate-limit";
 import { db } from "../db";
 import { cashMovements, expenseDefinitions } from "@shared/schema";
@@ -22,7 +22,7 @@ const summaryLimiter = createRateLimiter({
 });
 
 export function registerReportRoutes(app: Express) {
-  app.post("/api/reports/monthly-summary", tenantAuth, requireTenantAdmin, summaryLimiter, async (req, res) => {
+  app.post("/api/reports/monthly-summary", tenantAuth, requireTenantAdmin, requireNotPlanCodes(["ECONOMICO"]), summaryLimiter, async (req, res) => {
     try {
       const { year, month, force } = monthlySummarySchema.parse(req.body);
       const tenantId = req.auth!.tenantId!;

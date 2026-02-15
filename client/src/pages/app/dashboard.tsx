@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { apiRequest, useAuth } from "@/lib/auth";
+import { usePlan } from "@/lib/plan";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -23,6 +24,7 @@ interface DashboardStats {
 
 export default function Dashboard() {
   const { user } = useAuth();
+  const { plan } = usePlan();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -51,6 +53,7 @@ export default function Dashboard() {
   }
 
   const profit = (stats?.monthlyIncome || 0) - (stats?.monthlyExpenses || 0);
+  const isEconomic = (plan?.planCode || "").toUpperCase() === "ECONOMICO";
 
   return (
     <div className="space-y-6">
@@ -93,45 +96,49 @@ export default function Dashboard() {
               </CardContent>
             </Card>
 
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Ingresos del Mes</p>
-                    <p className="text-2xl font-bold" data-testid="text-monthly-income">
-                      ${(stats?.monthlyIncome || 0).toLocaleString("es-AR")}
-                    </p>
-                    <div className="flex items-center gap-1 mt-1">
-                      <ArrowUpRight className="w-3 h-3 text-chart-2" />
-                      <p className="text-xs text-chart-2">Hoy: ${(stats?.todayIncome || 0).toLocaleString("es-AR")}</p>
+            {!isEconomic && (
+              <>
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <p className="text-sm text-muted-foreground">Ingresos del Mes</p>
+                        <p className="text-2xl font-bold" data-testid="text-monthly-income">
+                          ${(stats?.monthlyIncome || 0).toLocaleString("es-AR")}
+                        </p>
+                        <div className="flex items-center gap-1 mt-1">
+                          <ArrowUpRight className="w-3 h-3 text-chart-2" />
+                          <p className="text-xs text-chart-2">Hoy: ${(stats?.todayIncome || 0).toLocaleString("es-AR")}</p>
+                        </div>
+                      </div>
+                      <div className="p-3 rounded-md bg-chart-2/10">
+                        <Wallet className="w-5 h-5 text-chart-2" />
+                      </div>
                     </div>
-                  </div>
-                  <div className="p-3 rounded-md bg-chart-2/10">
-                    <Wallet className="w-5 h-5 text-chart-2" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+                  </CardContent>
+                </Card>
 
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Egresos del Mes</p>
-                    <p className="text-2xl font-bold" data-testid="text-monthly-expenses">
-                      ${(stats?.monthlyExpenses || 0).toLocaleString("es-AR")}
-                    </p>
-                    <div className="flex items-center gap-1 mt-1">
-                      <ArrowDownRight className="w-3 h-3 text-destructive" />
-                      <p className="text-xs text-destructive">Hoy: ${(stats?.todayExpenses || 0).toLocaleString("es-AR")}</p>
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <p className="text-sm text-muted-foreground">Egresos del Mes</p>
+                        <p className="text-2xl font-bold" data-testid="text-monthly-expenses">
+                          ${(stats?.monthlyExpenses || 0).toLocaleString("es-AR")}
+                        </p>
+                        <div className="flex items-center gap-1 mt-1">
+                          <ArrowDownRight className="w-3 h-3 text-destructive" />
+                          <p className="text-xs text-destructive">Hoy: ${(stats?.todayExpenses || 0).toLocaleString("es-AR")}</p>
+                        </div>
+                      </div>
+                      <div className="p-3 rounded-md bg-destructive/10">
+                        <Wallet className="w-5 h-5 text-destructive" />
+                      </div>
                     </div>
-                  </div>
-                  <div className="p-3 rounded-md bg-destructive/10">
-                    <Wallet className="w-5 h-5 text-destructive" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+                  </CardContent>
+                </Card>
+              </>
+            )}
 
             <Card>
               <CardContent className="pt-6">
@@ -156,39 +163,47 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
-            <div>
-              <h3 className="font-semibold">Resumen Mensual</h3>
-              <p className="text-sm text-muted-foreground">Balance del mes actual</p>
-            </div>
-            <TrendingUp className="w-5 h-5 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="text-sm">Ingresos</span>
-                <span className="text-sm font-medium text-chart-2">
-                  +${(stats?.monthlyIncome || 0).toLocaleString("es-AR")}
-                </span>
+        {!isEconomic ? (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
+              <div>
+                <h3 className="font-semibold">Resumen Mensual</h3>
+                <p className="text-sm text-muted-foreground">Balance del mes actual</p>
               </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm">Egresos</span>
-                <span className="text-sm font-medium text-destructive">
-                  -${(stats?.monthlyExpenses || 0).toLocaleString("es-AR")}
-                </span>
-              </div>
-              <div className="border-t pt-3">
+              <TrendingUp className="w-5 h-5 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-semibold">Resultado</span>
-                  <span className={`text-sm font-bold ${profit >= 0 ? "text-chart-2" : "text-destructive"}`}>
-                    ${profit.toLocaleString("es-AR")}
+                  <span className="text-sm">Ingresos</span>
+                  <span className="text-sm font-medium text-chart-2">
+                    +${(stats?.monthlyIncome || 0).toLocaleString("es-AR")}
                   </span>
                 </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm">Egresos</span>
+                  <span className="text-sm font-medium text-destructive">
+                    -${(stats?.monthlyExpenses || 0).toLocaleString("es-AR")}
+                  </span>
+                </div>
+                <div className="border-t pt-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-semibold">Resultado</span>
+                    <span className={`text-sm font-bold ${profit >= 0 ? "text-chart-2" : "text-destructive"}`}>
+                      ${profit.toLocaleString("es-AR")}
+                    </span>
+                  </div>
+                </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        ) : (
+          <Card>
+            <CardContent className="py-10 text-center text-sm text-muted-foreground">
+              El resumen mensual está disponible a partir del plan Profesional.
+            </CardContent>
+          </Card>
+        )}
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">

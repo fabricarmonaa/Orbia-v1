@@ -191,6 +191,60 @@ export function requireFeature(featureKey: string) {
   };
 }
 
+
+export function requirePlanCodes(allowedPlanCodes: string[]) {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.auth?.tenantId) {
+        return res.status(403).json({ error: "Acceso denegado", code: "FORBIDDEN" });
+      }
+      const plan = await getTenantPlan(req.auth.tenantId);
+      if (!plan) {
+        return res.status(403).json({ error: "Sin plan asignado", code: "NO_PLAN" });
+      }
+      req.plan = plan;
+      const planCode = (plan.planCode || "").toUpperCase();
+      const allowed = allowedPlanCodes.map((c) => c.toUpperCase());
+      if (!allowed.includes(planCode)) {
+        return res.status(403).json({
+          error: "Tu plan no incluye esta función.",
+          code: "PLAN_BLOCKED",
+          currentPlan: plan.planCode,
+        });
+      }
+      next();
+    } catch {
+      return res.status(500).json({ error: "Error verificando plan", code: "PLAN_CHECK_ERROR" });
+    }
+  };
+}
+
+export function requireNotPlanCodes(blockedPlanCodes: string[]) {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.auth?.tenantId) {
+        return res.status(403).json({ error: "Acceso denegado", code: "FORBIDDEN" });
+      }
+      const plan = await getTenantPlan(req.auth.tenantId);
+      if (!plan) {
+        return res.status(403).json({ error: "Sin plan asignado", code: "NO_PLAN" });
+      }
+      req.plan = plan;
+      const blocked = blockedPlanCodes.map((c) => c.toUpperCase());
+      if (blocked.includes((plan.planCode || "").toUpperCase())) {
+        return res.status(403).json({
+          error: "Tu plan no incluye esta función. Mejorá tu plan para usarla.",
+          code: "PLAN_BLOCKED",
+          currentPlan: plan.planCode,
+        });
+      }
+      next();
+    } catch {
+      return res.status(500).json({ error: "Error verificando plan", code: "PLAN_CHECK_ERROR" });
+    }
+  };
+}
+
 export function requireAddon(addonKey: string) {
   return async (req: Request, res: Response, next: NextFunction) => {
     try {

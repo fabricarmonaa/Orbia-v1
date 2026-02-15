@@ -67,6 +67,7 @@ export function registerAuthRoutes(app: Express) {
           tenantId: null,
           isSuperAdmin: true,
           branchId: null,
+          avatarUrl: user.avatarUrl || null,
         },
       });
     } catch (err: any) {
@@ -157,6 +158,7 @@ export function registerAuthRoutes(app: Express) {
           isSuperAdmin: false,
           branchId: user.branchId,
           scope: user.scope || "TENANT",
+          avatarUrl: user.avatarUrl || null,
         },
         subscriptionWarning,
       });

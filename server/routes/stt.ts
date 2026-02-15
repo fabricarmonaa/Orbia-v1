@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import { storage } from "../storage";
-import { tenantAuth, requireFeature, enforceBranchScope } from "../auth";
+import { tenantAuth, requireFeature, enforceBranchScope, requirePlanCodes } from "../auth";
 import { sttRateLimiter, sttConcurrencyGuard, validateSttPayload, estimateAudioDurationSec } from "../middleware/stt-guards";
 
 const STT_TIMEOUT_MS = parseInt(process.env.STT_TIMEOUT_MS || "30000", 10);
@@ -51,6 +51,7 @@ export function registerSttRoutes(app: Express) {
   app.post("/api/ai/stt",
     tenantAuth,
     requireFeature("stt"),
+    requirePlanCodes(["ESCALA"]),
     sttRateLimiter,
     sttConcurrencyGuard,
     validateSttPayload,
@@ -124,7 +125,7 @@ export function registerSttRoutes(app: Express) {
       }
     });
 
-  app.post("/api/ai/apply", tenantAuth, requireFeature("stt"), enforceBranchScope, async (req, res) => {
+  app.post("/api/ai/apply", tenantAuth, requireFeature("stt"), requirePlanCodes(["ESCALA"]), enforceBranchScope, async (req, res) => {
     try {
       const { context, intent, logId } = req.body;
       if (!context || !intent) {

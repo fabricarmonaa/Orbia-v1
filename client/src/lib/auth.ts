@@ -9,6 +9,7 @@ export interface AuthUser {
   tenantId: number | null;
   isSuperAdmin: boolean;
   branchId: number | null;
+  avatarUrl?: string | null;
   subscriptionWarning?: string | null;
 }
 
@@ -58,6 +59,13 @@ export function getToken(): string | null {
 
 export function getUser(): AuthUser | null {
   return currentUser;
+}
+
+export function updateCurrentUser(partial: Partial<AuthUser>) {
+  if (!currentUser) return;
+  currentUser = { ...currentUser, ...partial };
+  localStorage.setItem("orbia_user", JSON.stringify(currentUser));
+  notifyListeners();
 }
 
 export function useAuth() {

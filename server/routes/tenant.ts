@@ -41,10 +41,22 @@ export function registerTenantRoutes(app: Express) {
           scope: user.scope || "TENANT",
           tenantId: user.tenantId,
           branchId: user.branchId,
+          avatarUrl: user.avatarUrl || null,
         },
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+
+  app.get("/api/tenant/info", tenantAuth, async (req, res) => {
+    try {
+      const tenant = await storage.getTenantById(req.auth!.tenantId!);
+      if (!tenant) return res.status(404).json({ error: "Negocio no encontrado", code: "TENANT_NOT_FOUND" });
+      res.json({ data: { id: tenant.id, code: tenant.code, name: tenant.name } });
+    } catch (err: any) {
+      res.status(500).json({ error: "No se pudo obtener información del negocio", code: "TENANT_INFO_ERROR" });
     }
   });
 
@@ -54,6 +66,27 @@ export function registerTenantRoutes(app: Express) {
       res.json({ data: plan || null });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+
+  app.put("/api/me/profile", tenantAuth, async (req, res) => {
+    try {
+      const avatarUrl = typeof req.body?.avatarUrl === "string" ? req.body.avatarUrl.trim() : undefined;
+      const fullName = typeof req.body?.fullName === "string" ? req.body.fullName.trim() : undefined;
+      const payload: any = {};
+      if (avatarUrl !== undefined) {
+        payload.avatarUrl = avatarUrl || null;
+        payload.avatarUpdatedAt = new Date();
+      }
+      if (fullName) payload.fullName = fullName;
+      if (!Object.keys(payload).length) {
+        return res.status(400).json({ error: "Sin cambios para guardar", code: "PROFILE_NO_CHANGES" });
+      }
+      const user = await storage.updateUser(req.auth!.userId, req.auth!.tenantId!, payload);
+      res.json({ data: { id: user.id, fullName: user.fullName, avatarUrl: user.avatarUrl, avatarUpdatedAt: user.avatarUpdatedAt } });
+    } catch (err: any) {
+      res.status(500).json({ error: "No se pudo actualizar el perfil", code: "PROFILE_UPDATE_ERROR" });
     }
   });
 
