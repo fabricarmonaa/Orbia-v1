@@ -10,6 +10,7 @@ import { db } from "../db";
 import { superAdminTotp, superAdminAuditLogs, users } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { generateSecret, generateURI, verify as verifyTotp } from "otplib";
+import QRCode from "qrcode";
 
 const createTenantSchema = z.object({
   code: z.string().trim().min(2).max(40),
@@ -422,8 +423,22 @@ export function registerSuperRoutes(app: Express) {
       if (!user) return res.status(404).json({ error: "Super admin no encontrado", code: "SUPERADMIN_NOT_FOUND" });
 
       const secret = generateSecret();
-      const label = accountLabel || user.email;
-      const otpauthUrl = generateURI({ strategy: "totp", label, issuer: "Orbia Admin", secret });
+      const label = (accountLabel || user.email).trim();
+      const issuer = "Orbia Admin";
+      const otpauthUrl = generateURI({
+        strategy: "totp",
+        label,
+        issuer,
+        secret,
+        algorithm: "sha1",
+        digits: 6,
+        period: 30,
+      });
+      const qrDataUrl = await QRCode.toDataURL(otpauthUrl, {
+        errorCorrectionLevel: "M",
+        margin: 1,
+        width: 280,
+      });
 
       await db
         .insert(superAdminTotp)
@@ -439,7 +454,7 @@ export function registerSuperRoutes(app: Express) {
         metadata: { label },
       });
 
-      return res.json({ data: { otpauthUrl, qrData: otpauthUrl } });
+      return res.json({ data: { otpauthUrl, qrDataUrl, manualSecret: secret, issuer, account: label } });
     } catch {
       return res.status(500).json({ error: "No se pudo iniciar configuración de 2FA", code: "SUPERADMIN_2FA_SETUP_ERROR" });
     }

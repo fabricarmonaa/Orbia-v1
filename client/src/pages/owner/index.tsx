@@ -158,7 +158,9 @@ export default function OwnerDashboard() {
   const [confirmSecurityPassword, setConfirmSecurityPassword] = useState("");
   const [savingSecurity, setSavingSecurity] = useState(false);
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
-  const [twoFactorQrData, setTwoFactorQrData] = useState<string | null>(null);
+  const [twoFactorQrDataUrl, setTwoFactorQrDataUrl] = useState<string | null>(null);
+  const [twoFactorOtpAuthUrl, setTwoFactorOtpAuthUrl] = useState<string | null>(null);
+  const [twoFactorManualSecret, setTwoFactorManualSecret] = useState<string | null>(null);
   const [twoFactorToken, setTwoFactorToken] = useState("");
 
   useEffect(() => {
@@ -534,8 +536,10 @@ export default function OwnerDashboard() {
     try {
       const res = await apiRequest("POST", "/api/super/2fa/setup", { accountLabel: securityEmail });
       const data = await res.json();
-      setTwoFactorQrData(data.data?.qrData || null);
-      toast({ title: "2FA listo para verificar" });
+      setTwoFactorQrDataUrl(data.data?.qrDataUrl || null);
+      setTwoFactorOtpAuthUrl(data.data?.otpauthUrl || null);
+      setTwoFactorManualSecret(data.data?.manualSecret || null);
+      toast({ title: "QR generado", description: "Escanealo con Google Authenticator y luego verificá el código." });
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
     }
@@ -545,7 +549,9 @@ export default function OwnerDashboard() {
     try {
       await apiRequest("POST", "/api/super/2fa/verify", { token: twoFactorToken });
       setTwoFactorEnabled(true);
-      setTwoFactorQrData(null);
+      setTwoFactorQrDataUrl(null);
+      setTwoFactorOtpAuthUrl(null);
+      setTwoFactorManualSecret(null);
       setTwoFactorToken("");
       toast({ title: "2FA habilitado" });
     } catch (err: any) {
@@ -1219,10 +1225,24 @@ export default function OwnerDashboard() {
                 {!twoFactorEnabled ? (
                   <Button variant="outline" onClick={setupTwoFactor}>Configurar 2FA</Button>
                 ) : null}
-                {twoFactorQrData ? (
+                {twoFactorQrDataUrl ? (
                   <div className="space-y-2">
-                    <Label>URL OTP (cargala en Authenticator)</Label>
-                    <Input value={twoFactorQrData} readOnly />
+                    <Label>Escaneá este QR con Google Authenticator</Label>
+                    <div className="rounded-md border p-3 bg-white w-fit">
+                      <img src={twoFactorQrDataUrl} alt="QR para Google Authenticator" className="h-44 w-44" />
+                    </div>
+                  </div>
+                ) : null}
+                {twoFactorManualSecret ? (
+                  <div className="space-y-2">
+                    <Label>Clave manual (fallback)</Label>
+                    <Input value={twoFactorManualSecret} readOnly />
+                  </div>
+                ) : null}
+                {twoFactorOtpAuthUrl ? (
+                  <div className="space-y-2">
+                    <Label>URI OTP (debug)</Label>
+                    <Input value={twoFactorOtpAuthUrl} readOnly />
                   </div>
                 ) : null}
                 <div className="space-y-1">
