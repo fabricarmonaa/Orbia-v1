@@ -1,5 +1,5 @@
-import { useState, useCallback } from "react";
-import { apiRequest } from "@/lib/auth";
+import { useState, useCallback, useEffect, useRef } from "react";
+import { apiRequest, registerSessionCleanup } from "@/lib/auth";
 import { usePlan } from "@/lib/plan";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -49,6 +49,8 @@ export function VoiceCommand({ context, onResult, onCancel }: VoiceCommandProps)
   const { hasFeature } = usePlan();
   const [recording, setRecording] = useState(false);
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const [processing, setProcessing] = useState(false);
   const [applying, setApplying] = useState(false);
   const [result, setResult] = useState<SttResult | null>(null);
@@ -98,7 +100,8 @@ export function VoiceCommand({ context, onResult, onCancel }: VoiceCommandProps)
       };
 
       recorder.onstop = async () => {
-        stream.getTracks().forEach((t) => t.stop());
+        streamRef.current?.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
         const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
         if (blob.size === 0) {
           setError("No se grabó audio");
@@ -133,6 +136,8 @@ export function VoiceCommand({ context, onResult, onCancel }: VoiceCommandProps)
         }
       };
 
+      mediaRecorderRef.current = recorder;
+      streamRef.current = stream;
       recorder.start();
       setMediaRecorder(recorder);
       setRecording(true);
@@ -144,6 +149,7 @@ export function VoiceCommand({ context, onResult, onCancel }: VoiceCommandProps)
   const handleStopRecording = useCallback(() => {
     if (mediaRecorder && mediaRecorder.state === "recording") {
       mediaRecorder.stop();
+      mediaRecorderRef.current = null;
       setRecording(false);
       setMediaRecorder(null);
     }
@@ -204,6 +210,32 @@ export function VoiceCommand({ context, onResult, onCancel }: VoiceCommandProps)
 
   const handleFieldChange = useCallback((key: string, value: string) => {
     setEditedIntent((prev) => ({ ...prev, [key]: value }));
+  }, []);
+
+
+  useEffect(() => {
+    const stopVoiceResources = () => {
+      const recorder = mediaRecorderRef.current;
+      if (recorder && recorder.state === "recording") {
+        try {
+          recorder.stop();
+        } catch {
+          // noop
+        }
+      }
+      mediaRecorderRef.current = null;
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+      setRecording(false);
+      setMediaRecorder(null);
+      setProcessing(false);
+    };
+
+    const unregister = registerSessionCleanup(stopVoiceResources);
+    return () => {
+      unregister();
+      stopVoiceResources();
+    };
   }, []);
 
   if (!canUseSTT) return null;

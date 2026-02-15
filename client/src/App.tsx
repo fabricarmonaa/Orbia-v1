@@ -13,6 +13,7 @@ import AppLayout from "@/pages/app/layout";
 import PublicTracking from "@/pages/public-tracking";
 import DeliveryLogin from "@/pages/delivery-login";
 import DeliveryPanel from "@/pages/delivery-panel";
+import { SessionLifecycleManager } from "@/components/session-lifecycle-manager";
 
 function Router() {
   return (
@@ -39,6 +40,7 @@ function App() {
         <ThemeProvider>
           <BrandingProvider>
             <Toaster />
+            <SessionLifecycleManager />
             <Router />
           </BrandingProvider>
         </ThemeProvider>

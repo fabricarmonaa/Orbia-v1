@@ -6,6 +6,8 @@ export type ApiErrorInfo = {
 
 const DEFAULT_MESSAGES: Record<string, string> = {
   TOKEN_REQUIRED: "Tu sesión expiró. Volvé a iniciar sesión.",
+  TOKEN_EXPIRED: "Sesión expirada. Iniciá sesión nuevamente.",
+  TOKEN_INVALID: "Tu sesión no es válida. Iniciá sesión nuevamente.",
   PERMISSION_DENIED: "No tenés permisos para realizar esta acción.",
 };
 
@@ -31,8 +33,8 @@ export async function parseApiError(
   const fallbackMessage = parsed?.error || parsed?.message || raw || res.statusText;
   let message = fallbackMessage;
 
-  if (res.status === 401 || code === "TOKEN_REQUIRED") {
-    message = DEFAULT_MESSAGES.TOKEN_REQUIRED;
+  if (res.status === 401 || code === "TOKEN_REQUIRED" || code === "TOKEN_EXPIRED" || code === "TOKEN_INVALID") {
+    message = DEFAULT_MESSAGES[code || "TOKEN_REQUIRED"] || DEFAULT_MESSAGES.TOKEN_REQUIRED;
   } else if (code && DEFAULT_MESSAGES[code]) {
     message = DEFAULT_MESSAGES[code];
   } else if (code === "UPLOAD_TOO_LARGE") {

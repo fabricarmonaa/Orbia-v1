@@ -58,3 +58,15 @@
 ## Pendiente / no aplica
 - No se agregó APM de terceros (requisito explícito: sin herramientas pesadas).
 - El perfilado de DB con carga real (80 tenants concurrentes) queda para ambiente staging/producción con datos reales.
+
+## Session lifecycle audit (auth/logout)
+- Token lifecycle detectado:
+  - Login: `/api/auth/login` y `/api/auth/super/login` emiten JWT.
+  - Cliente: token/user en `localStorage` (`orbia_token`, `orbia_user`).
+  - Header auth: se inyecta en `apiRequest` / `queryClient`.
+- Riesgos corregidos:
+  - 401 en loop por múltiples fetches => guard de logout único (`unauthorizedHandled`).
+  - Sesiones zombies con STT => cleanup central y cierre explícito de `MediaRecorder`/tracks.
+  - Requests colgadas => `AbortController` central para cancelar al cerrar sesión/pestaña.
+- Endpoints potencialmente largos revisados: `/api/ai/stt`, `/api/pdfs/*`, uploads.
+- Códigos de expiración estandarizados backend: `TOKEN_REQUIRED`, `TOKEN_EXPIRED`, `TOKEN_INVALID`.

@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
   generateToken,
   comparePassword,
+  verifyToken,
 } from "../auth";
 import { createRateLimiter } from "../middleware/rate-limit";
 
@@ -35,6 +36,36 @@ const tenantLoginLimiter = createRateLimiter({
 });
 
 export function registerAuthRoutes(app: Express) {
+
+
+  app.post("/api/auth/logout", async (req, res) => {
+    try {
+      const authHeader = req.headers.authorization;
+      if (authHeader?.startsWith("Bearer ")) {
+        const token = authHeader.substring(7);
+        try {
+          const payload = verifyToken(token);
+          if (payload.tenantId) {
+            await storage.createAuditLog({
+              tenantId: payload.tenantId,
+              userId: payload.userId,
+              action: "logout",
+              entityType: "auth",
+              metadata: {
+                ip: req.ip,
+                userAgent: req.headers["user-agent"] || null,
+              },
+            });
+          }
+        } catch {
+          // Stateless JWT: si token ya expiró/invalidó, el logout sigue siendo exitoso del lado cliente.
+        }
+      }
+      return res.json({ ok: true });
+    } catch {
+      return res.json({ ok: true });
+    }
+  });
   app.post("/api/auth/super/login", superLoginLimiter, async (req, res) => {
     try {
       const { email, password } = superLoginSchema.parse(req.body);

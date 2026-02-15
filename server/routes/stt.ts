@@ -28,12 +28,12 @@ function mapSttError(status: number, body?: any) {
   return { status: status >= 500 ? 500 : status, code: body?.code || "STT_PROCESSING_ERROR", error: "No se pudo transcribir. Probá de nuevo o hablá más cerca del micrófono." };
 }
 
-async function callAiStt(aiServiceUrl: string, audio: string, context: string) {
+async function callAiStt(aiServiceUrl: string, audio: string, context: string, signal: AbortSignal) {
   const aiRes = await fetch(`${aiServiceUrl}/api/stt`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ audio, context }),
-    signal: AbortSignal.timeout(STT_TIMEOUT_MS),
+    signal,
   });
 
   if (!aiRes.ok) {
@@ -56,11 +56,21 @@ export function registerSttRoutes(app: Express) {
     sttConcurrencyGuard,
     validateSttPayload,
     async (req, res) => {
+      let timeout: NodeJS.Timeout | null = null;
+      let clientClosed = false;
+      const controller = new AbortController();
+
+      req.on("close", () => {
+        clientClosed = true;
+        controller.abort();
+      });
+
       try {
         const { audio, context } = req.body;
 
         const aiServiceUrl = process.env.AI_SERVICE_URL || "http://localhost:8001";
         let sttResult: { transcription: string; intent: any };
+        timeout = setTimeout(() => controller.abort(), STT_TIMEOUT_MS);
 
         sttLog("incoming_audio", {
           tenantId: req.auth?.tenantId,
@@ -71,7 +81,7 @@ export function registerSttRoutes(app: Express) {
         });
 
         try {
-          sttResult = await callAiStt(aiServiceUrl, audio, context);
+          sttResult = await callAiStt(aiServiceUrl, audio, context, controller.signal);
         } catch (fetchErr: any) {
           sttLog("ai_call_error", { message: fetchErr?.message, status: fetchErr?.status, body: fetchErr?.body });
 
@@ -81,20 +91,22 @@ export function registerSttRoutes(app: Express) {
             fetchErr?.cause?.code === "ECONNREFUSED" ||
             fetchErr.message?.includes("fetch failed");
 
-          if (isUnavailable) {
+          if (isUnavailable && !clientClosed) {
             return res.status(503).json({
               error: "Servicio de IA no disponible. Intentá de nuevo más tarde.",
               code: "AI_SERVICE_UNAVAILABLE",
             });
           }
 
-          if (STT_RETRY_ON_FAILURE && [502, 503, 504].includes(fetchErr?.status || 0)) {
+          if (STT_RETRY_ON_FAILURE && [502, 503, 504].includes(fetchErr?.status || 0) && !clientClosed) {
             sttLog("retrying_ai_call_once");
-            sttResult = await callAiStt(aiServiceUrl, audio, context);
+            sttResult = await callAiStt(aiServiceUrl, audio, context, controller.signal);
           } else {
             throw fetchErr;
           }
         }
+
+        if (clientClosed || res.headersSent) return;
 
         sttLog("ai_response_ok", {
           transcriptionLength: sttResult.transcription?.length || 0,
@@ -110,18 +122,24 @@ export function registerSttRoutes(app: Express) {
           confirmed: false,
         });
 
-        res.json({
-          data: {
-            logId: log.id,
-            transcription: sttResult.transcription,
-            intent: sttResult.intent,
-            context,
-          },
-        });
+        if (!res.headersSent) {
+          res.json({
+            data: {
+              logId: log.id,
+              transcription: sttResult.transcription,
+              intent: sttResult.intent,
+              context,
+            },
+          });
+        }
       } catch (err: any) {
         const mapped = mapSttError(err?.status || 500, err?.body);
-        sttLog("stt_error", { message: err?.message, mapped });
-        res.status(mapped.status).json({ error: mapped.error, code: mapped.code });
+        sttLog("stt_error", { message: err?.message, mapped, clientClosed });
+        if (!clientClosed && !res.headersSent) {
+          res.status(mapped.status).json({ error: mapped.error, code: mapped.code });
+        }
+      } finally {
+        if (timeout) clearTimeout(timeout);
       }
     });
 

@@ -55,6 +55,8 @@ const exportBodySchema = z.object({
   selectedIds: z.array(z.coerce.number().int().positive()).optional().default([]),
 });
 
+const PDF_TIMEOUT_MS = parseInt(process.env.PDF_TIMEOUT_MS || "25000", 10);
+
 const previewLimiter = createRateLimiter({
   windowMs: 60 * 1000,
   max: parseInt(process.env.PDF_PREVIEW_LIMIT_PER_MIN || "5", 10),
@@ -62,6 +64,29 @@ const previewLimiter = createRateLimiter({
   errorMessage: "Demasiadas solicitudes de PDF. Intentá en un minuto.",
   code: "PDF_RATE_LIMIT",
 });
+
+
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      const err = new Error("La generación tardó demasiado. Intentá nuevamente.") as Error & { status?: number; code?: string };
+      err.status = 504;
+      err.code = "PDF_TIMEOUT";
+      reject(err);
+    }, timeoutMs);
+
+    promise
+      .then((value) => {
+        clearTimeout(timeout);
+        resolve(value);
+      })
+      .catch((err) => {
+        clearTimeout(timeout);
+        reject(err);
+      });
+  });
+}
 
 function normalizeColumns(columns?: string[]) {
   if (!columns?.length) return DEFAULT_PDF_SETTINGS.columns;
@@ -191,12 +216,15 @@ export function registerPdfRoutes(app: Express) {
       if (documentType === "INVOICE_B" && !canUseInvoiceB(plan?.planCode)) {
         return res.status(403).json({ error: "Tu plan no incluye Factura B.", code: "PLAN_BLOCKED" });
       }
-      const pdfBuffer = await generatePdfByType(req.auth!.tenantId!, documentType, plan?.planCode);
+      let clientClosed = false;
+      req.on("close", () => { clientClosed = true; });
+      const pdfBuffer = await withTimeout(generatePdfByType(req.auth!.tenantId!, documentType, plan?.planCode), PDF_TIMEOUT_MS);
+      if (clientClosed || res.headersSent) return;
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", "inline; filename=documento.pdf");
       res.send(pdfBuffer);
-    } catch {
-      res.status(500).json({ error: "No se pudo generar el PDF", code: "PDF_GENERATION_ERROR" });
+    } catch (err: any) {
+      res.status(err?.status || 500).json({ error: err?.message || "No se pudo generar el PDF", code: err?.code || "PDF_GENERATION_ERROR" });
     }
   });
 
@@ -207,12 +235,15 @@ export function registerPdfRoutes(app: Express) {
       if (documentType === "INVOICE_B" && !canUseInvoiceB(plan?.planCode)) {
         return res.status(403).json({ error: "Tu plan no incluye Factura B.", code: "PLAN_BLOCKED" });
       }
-      const pdfBuffer = await generatePdfByType(req.auth!.tenantId!, documentType, plan?.planCode);
+      let clientClosed = false;
+      req.on("close", () => { clientClosed = true; });
+      const pdfBuffer = await withTimeout(generatePdfByType(req.auth!.tenantId!, documentType, plan?.planCode), PDF_TIMEOUT_MS);
+      if (clientClosed || res.headersSent) return;
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", "attachment; filename=documento.pdf");
       res.send(pdfBuffer);
-    } catch {
-      res.status(500).json({ error: "No se pudo generar el PDF", code: "PDF_GENERATION_ERROR" });
+    } catch (err: any) {
+      res.status(err?.status || 500).json({ error: err?.message || "No se pudo generar el PDF", code: err?.code || "PDF_GENERATION_ERROR" });
     }
   });
 
@@ -221,7 +252,10 @@ export function registerPdfRoutes(app: Express) {
       const payload = exportBodySchema.parse(req.body || {});
       const { data, hasBranches } = await resolvePriceListProducts(req.auth!.tenantId!, payload);
       const plan = await getTenantPlan(req.auth!.tenantId!);
-      const pdfBuffer = await generatePriceListPdf(req.auth!.tenantId!, { products: data, hasBranches, watermarkOrbia: isEconomicPlan(plan?.planCode) });
+      let clientClosed = false;
+      req.on("close", () => { clientClosed = true; });
+      const pdfBuffer = await withTimeout(generatePriceListPdf(req.auth!.tenantId!, { products: data, hasBranches, watermarkOrbia: isEconomicPlan(plan?.planCode) }), PDF_TIMEOUT_MS);
+      if (clientClosed || res.headersSent) return;
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", "inline; filename=lista-precios.pdf");
       res.send(pdfBuffer);
@@ -238,7 +272,10 @@ export function registerPdfRoutes(app: Express) {
       const payload = exportBodySchema.parse(req.body || {});
       const { data, hasBranches } = await resolvePriceListProducts(req.auth!.tenantId!, payload);
       const plan = await getTenantPlan(req.auth!.tenantId!);
-      const pdfBuffer = await generatePriceListPdf(req.auth!.tenantId!, { products: data, hasBranches, watermarkOrbia: isEconomicPlan(plan?.planCode) });
+      let clientClosed = false;
+      req.on("close", () => { clientClosed = true; });
+      const pdfBuffer = await withTimeout(generatePriceListPdf(req.auth!.tenantId!, { products: data, hasBranches, watermarkOrbia: isEconomicPlan(plan?.planCode) }), PDF_TIMEOUT_MS);
+      if (clientClosed || res.headersSent) return;
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", "attachment; filename=lista-precios.pdf");
       res.send(pdfBuffer);

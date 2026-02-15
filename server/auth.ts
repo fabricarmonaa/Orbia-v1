@@ -12,6 +12,23 @@ if (!JWT_SECRET_ENV) {
 
 const JWT_SECRET: string = JWT_SECRET_ENV;
 
+function unauthorizedResponse(res: Response, type: "required" | "expired" | "invalid") {
+  if (type == "required") {
+    return res.status(401).json({ error: "Token requerido", code: "TOKEN_REQUIRED" });
+  }
+  if (type == "expired") {
+    return res.status(401).json({ error: "Sesión expirada. Iniciá sesión nuevamente", code: "TOKEN_EXPIRED" });
+  }
+  return res.status(401).json({ error: "Token inválido", code: "TOKEN_INVALID" });
+}
+
+function mapJwtError(err: unknown): "expired" | "invalid" {
+  if (err && typeof err === "object" && "name" in err && (err as any).name === "TokenExpiredError") {
+    return "expired";
+  }
+  return "invalid";
+}
+
 export interface JWTPayload {
   userId: number;
   email: string;
@@ -101,7 +118,7 @@ export function superAuth(req: Request, res: Response, next: NextFunction) {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader?.startsWith("Bearer ")) {
-      return res.status(401).json({ error: "Token requerido" });
+      return unauthorizedResponse(res, "required");
     }
     const token = authHeader.substring(7);
     const payload = verifyToken(token);
@@ -110,8 +127,8 @@ export function superAuth(req: Request, res: Response, next: NextFunction) {
     }
     req.auth = payload;
     next();
-  } catch {
-    return res.status(401).json({ error: "Token inválido" });
+  } catch (err) {
+    return unauthorizedResponse(res, mapJwtError(err));
   }
 }
 
@@ -119,7 +136,7 @@ export function tenantAuth(req: Request, res: Response, next: NextFunction) {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader?.startsWith("Bearer ")) {
-      return res.status(401).json({ error: "Token requerido" });
+      return unauthorizedResponse(res, "required");
     }
     const token = authHeader.substring(7);
     const payload = verifyToken(token);
@@ -141,8 +158,8 @@ export function tenantAuth(req: Request, res: Response, next: NextFunction) {
         next();
       })
       .catch(() => res.status(500).json({ error: "Error verificando negocio" }));
-  } catch {
-    return res.status(401).json({ error: "Token inválido" });
+  } catch (err) {
+    return unauthorizedResponse(res, mapJwtError(err));
   }
 }
 
@@ -271,7 +288,7 @@ export function deliveryAuth(req: Request, res: Response, next: NextFunction) {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader?.startsWith("Bearer ")) {
-      return res.status(401).json({ error: "Token requerido" });
+      return unauthorizedResponse(res, "required");
     }
     const token = authHeader.substring(7);
     const payload = verifyToken(token);
@@ -280,8 +297,8 @@ export function deliveryAuth(req: Request, res: Response, next: NextFunction) {
     }
     req.auth = payload;
     next();
-  } catch {
-    return res.status(401).json({ error: "Token inválido" });
+  } catch (err) {
+    return unauthorizedResponse(res, mapJwtError(err));
   }
 }
 

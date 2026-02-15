@@ -86,3 +86,16 @@
 - [ ] PROFESIONAL: sin Sucursales, sin STT, sin Factura B.
 - [ ] ESCALA: Sucursales + STT + Factura B habilitados.
 - [ ] En bloqueos server-side, validar `code=PLAN_BLOCKED` y mensaje humano.
+
+## Session lifecycle & graceful shutdown
+### Inventario rápido de sesión
+- Token: se guarda en `localStorage` (`orbia_token`, `orbia_user`) y se adjunta en `Authorization` desde `client/src/lib/auth.ts`.
+- Manejo global de 401: `apiRequest` y `queryClient` detectan `TOKEN_EXPIRED|TOKEN_INVALID|TOKEN_REQUIRED` y disparan logout centralizado una sola vez.
+- Recursos vivos observados: `MediaRecorder` (dictado), requests en vuelo (`AbortController`), listeners de online/offline y cierre de pestaña.
+- Endpoint de salida: `POST /api/auth/logout` (best-effort, rápido, devuelve `{ ok: true }`).
+
+### Casos manuales
+- [ ] **Logout normal con STT activo**: iniciar dictado, cerrar sesión, verificar que se corta micrófono, no hay requests pendientes y redirige a login.
+- [ ] **Token expirado**: usar token vencido, disparar request, validar redirección única a login con mensaje de sesión expirada.
+- [ ] **Cerrar pestaña (Alt+F4)**: con STT o PDF preview en curso, cerrar pestaña y validar ausencia de spam/loops.
+- [ ] **Offline/Online**: desconectar internet, validar pausa sin loops; reconectar y confirmar recuperación sin ráfaga de requests.
