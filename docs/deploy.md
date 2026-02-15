@@ -50,3 +50,19 @@ VITE_API_BASE_URL=https://api.midominio.com/api npm run build
 ```
 
 La app normaliza automáticamente la base y evita doble `/api`.
+
+## Instalación PWA (sin prompts automáticos)
+- El botón de instalación se muestra **solo** en `/app/settings`, dentro de la sección **Aplicación**.
+- Si el navegador dispara `beforeinstallprompt`, se muestra `Descargar app`.
+- Si la app ya está instalada (standalone), se muestra `Orbia ya está instalada ✅`.
+- En iPhone/iOS (sin `beforeinstallprompt`), se muestran instrucciones:
+  - `Para instalar en iPhone: Compartir → Agregar a pantalla de inicio.`
+
+### Prueba manual recomendada
+```bash
+npm run dev
+```
+1. Abrir `/app/settings` en Chrome/Edge/Brave y validar que no hay prompt automático.
+2. Verificar que aparece el bloque **Aplicación** y el botón `Descargar app` solo cuando el navegador permite instalar.
+3. Instalar la app, recargar y confirmar estado `Orbia ya está instalada ✅`.
+4. En iOS, confirmar que aparece el texto de instrucción y no un botón roto.

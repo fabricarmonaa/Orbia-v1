@@ -17,6 +17,7 @@ import { BillingSettings } from "@/components/settings/BillingSettings";
 import { BrandingSettings } from "@/components/settings/BrandingSettings";
 import { OperationsSettings } from "@/components/settings/OperationsSettings";
 import { AdvancedSettings } from "@/components/settings/AdvancedSettings";
+import { ApplicationSettings } from "@/components/settings/ApplicationSettings";
 import { PriceListPdfSettings } from "@/components/pdfs/PriceListPdfSettings";
 
 interface Config {
@@ -304,6 +305,11 @@ export default function SettingsPage() {
       id: "operations",
       label: "Operativo",
       content: <OperationsSettings />,
+    },
+    {
+      id: "application",
+      label: "Aplicación",
+      content: <ApplicationSettings />,
     },
     ...(isAdmin && !isEconomic
       ? [
