@@ -37,6 +37,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { parseApiError } from "@/lib/api-errors";
 
 interface DeliveryAgentInfo {
   id: number;
@@ -58,8 +59,8 @@ function deliveryApiRequest(method: string, url: string, data?: unknown, isFormD
     body: isFormData ? (data as FormData) : data ? JSON.stringify(data) : undefined,
   }).then(async (res) => {
     if (!res.ok) {
-      const text = await res.text();
-      throw new Error(text || res.statusText);
+      const info = await parseApiError(res);
+      throw new Error(info.message);
     }
     return res;
   });

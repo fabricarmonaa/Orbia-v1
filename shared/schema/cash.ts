@@ -8,6 +8,7 @@ import {
   serial,
   numeric,
   index,
+  jsonb,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -36,7 +37,10 @@ export const cashSessions = pgTable(
     openedAt: timestamp("opened_at").defaultNow().notNull(),
     closedAt: timestamp("closed_at"),
   },
-  (table) => [index("idx_cash_sessions_tenant").on(table.tenantId)]
+  (table) => [
+    index("idx_cash_sessions_tenant").on(table.tenantId),
+    index("idx_cash_sessions_tenant_created_session").on(table.tenantId, table.openedAt, table.id),
+  ]
 );
 
 export const insertCashSessionSchema = createInsertSchema(cashSessions).omit({
@@ -57,6 +61,8 @@ export const expenseDefinitions = pgTable(
     name: varchar("name", { length: 200 }).notNull(),
     description: text("description"),
     category: varchar("category", { length: 100 }),
+    defaultAmount: numeric("default_amount", { precision: 12, scale: 2 }),
+    currency: varchar("currency", { length: 10 }),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -74,6 +80,33 @@ export const insertExpenseDefinitionSchema = createInsertSchema(expenseDefinitio
 });
 export type InsertExpenseDefinition = z.infer<typeof insertExpenseDefinitionSchema>;
 export type ExpenseDefinition = typeof expenseDefinitions.$inferSelect;
+
+export const tenantMonthlySummaries = pgTable(
+  "tenant_monthly_summaries",
+  {
+    id: serial("id").primaryKey(),
+    tenantId: integer("tenant_id")
+      .references(() => tenants.id)
+      .notNull(),
+    year: integer("year").notNull(),
+    month: integer("month").notNull(),
+    totalsJson: jsonb("totals_json").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("idx_monthly_summaries_tenant").on(table.tenantId),
+    index("idx_monthly_summaries_period").on(table.tenantId, table.year, table.month),
+  ]
+);
+
+export const insertTenantMonthlySummarySchema = z.object({
+  tenantId: z.number().int(),
+  year: z.number().int(),
+  month: z.number().int(),
+  totalsJson: z.any(),
+});
+export type InsertTenantMonthlySummary = z.infer<typeof insertTenantMonthlySummarySchema>;
+export type TenantMonthlySummary = typeof tenantMonthlySummaries.$inferSelect;
 
 export const cashMovements = pgTable(
   "cash_movements",
@@ -95,7 +128,10 @@ export const cashMovements = pgTable(
     createdById: integer("created_by_id").references(() => users.id),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
-  (table) => [index("idx_cash_movements_tenant").on(table.tenantId)]
+  (table) => [
+    index("idx_cash_movements_tenant").on(table.tenantId),
+    index("idx_cash_movements_tenant_created_session").on(table.tenantId, table.createdAt, table.sessionId),
+  ]
 );
 
 export const insertCashMovementSchema = createInsertSchema(cashMovements).omit({

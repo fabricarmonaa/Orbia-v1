@@ -76,6 +76,8 @@ export const orders = pgTable(
   },
   (table) => [
     index("idx_orders_tenant").on(table.tenantId),
+    index("idx_orders_tenant_status_created").on(table.tenantId, table.statusId, table.createdAt),
+    index("idx_orders_tenant_tracking").on(table.tenantId, table.publicTrackingId),
     index("idx_orders_tracking").on(table.publicTrackingId),
   ]
 );

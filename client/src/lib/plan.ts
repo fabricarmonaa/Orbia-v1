@@ -86,6 +86,9 @@ export function usePlan() {
 
   const hasFeature = useCallback((feature: string): boolean => {
     if (!plan) return false;
+    const code = (plan.planCode || "").toUpperCase();
+    if (feature === "branches") return code === "ESCALA";
+    if (feature === "stt") return code === "ESCALA";
     return plan.features[feature] === true;
   }, [plan]);
 

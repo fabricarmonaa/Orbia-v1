@@ -22,6 +22,8 @@ export function securityHeaders(req: Request, res: Response, next: NextFunction)
       `img-src ${imgSrc}`,
       `connect-src ${connectSrc}`,
       `font-src ${fontSrc}`,
+      "frame-src 'self' blob:",
+      "worker-src 'self' blob:",
       "object-src 'none'",
       "base-uri 'self'",
       "frame-ancestors 'none'",

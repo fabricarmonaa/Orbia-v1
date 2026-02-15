@@ -1,17 +1,25 @@
 import type { Express } from "express";
 import { z } from "zod";
 import { storage } from "../storage";
-import { tenantAuth, blockBranchScope, requireFeature, requireTenantAdmin } from "../auth";
+import { tenantAuth, blockBranchScope, requireFeature, requireTenantAdmin, requireNotPlanCodes } from "../auth";
 
-const expenseDefinitionSchema = z.object({
+const baseExpenseDefinitionSchema = z.object({
     type: z.enum(["FIXED", "VARIABLE"]),
     name: z.string().trim().min(2).max(80),
     description: z.string().trim().max(200).optional().nullable(),
     category: z.string().trim().max(100).optional().nullable(),
+    defaultAmount: z.coerce.number().positive().optional(),
+    currency: z.string().trim().max(10).optional().nullable(),
     isActive: z.boolean().optional(),
 });
 
-const expenseDefinitionUpdateSchema = expenseDefinitionSchema.partial();
+const expenseDefinitionSchema = baseExpenseDefinitionSchema.superRefine((data, ctx) => {
+    if (data.type === "FIXED" && (!data.defaultAmount || data.defaultAmount <= 0)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "defaultAmount requerido para gastos fijos", path: ["defaultAmount"] });
+    }
+});
+
+const expenseDefinitionUpdateSchema = baseExpenseDefinitionSchema.partial();
 
 export function registerExpenseRoutes(app: Express) {
     // ============================================
@@ -36,6 +44,7 @@ export function registerExpenseRoutes(app: Express) {
 
     app.get("/api/expenses/definitions",
         tenantAuth,
+        requireNotPlanCodes(["ECONOMICO"]),
         async (req, res) => {
             try {
                 const type = req.query.type ? String(req.query.type).toUpperCase() : undefined;
@@ -52,6 +61,7 @@ export function registerExpenseRoutes(app: Express) {
 
     app.post("/api/expenses/definitions",
         tenantAuth,
+        requireNotPlanCodes(["ECONOMICO"]),
         requireTenantAdmin,
         blockBranchScope,
         async (req, res) => {
@@ -63,6 +73,8 @@ export function registerExpenseRoutes(app: Express) {
                     name: payload.name,
                     description: payload.description || null,
                     category: payload.category || null,
+                    defaultAmount: payload.defaultAmount ? String(payload.defaultAmount) : null,
+                    currency: payload.currency || null,
                     isActive: payload.isActive ?? true,
                 });
                 res.status(201).json({ data });
@@ -77,6 +89,7 @@ export function registerExpenseRoutes(app: Express) {
 
     app.put("/api/expenses/definitions/:id",
         tenantAuth,
+        requireNotPlanCodes(["ECONOMICO"]),
         requireTenantAdmin,
         blockBranchScope,
         async (req, res) => {
@@ -93,6 +106,8 @@ export function registerExpenseRoutes(app: Express) {
                         name: payload.name,
                         description: payload.description ?? undefined,
                         category: payload.category ?? undefined,
+                        defaultAmount: payload.defaultAmount !== undefined ? String(payload.defaultAmount) : undefined,
+                        currency: payload.currency ?? undefined,
                         isActive: payload.isActive,
                     }
                 );
@@ -109,6 +124,7 @@ export function registerExpenseRoutes(app: Express) {
 
     app.delete("/api/expenses/definitions/:id",
         tenantAuth,
+        requireNotPlanCodes(["ECONOMICO"]),
         requireTenantAdmin,
         blockBranchScope,
         async (req, res) => {

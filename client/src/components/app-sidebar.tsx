@@ -29,7 +29,8 @@ import { usePlan } from "@/lib/plan";
 import { useBranding } from "@/context/BrandingContext";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { BrandLogo } from "@/components/branding/BrandLogo";
 
 interface MenuItem {
   title: string;
@@ -57,6 +58,7 @@ export function AppSidebar() {
   const { appBranding } = useBranding();
   const [addonStatus, setAddonStatus] = useState<Record<string, boolean>>({});
   const isTenantAdmin = user?.role === "admin";
+  const planCode = (plan?.planCode || "").toUpperCase();
 
   useEffect(() => {
     apiRequest("GET", "/api/addons/status")
@@ -86,17 +88,12 @@ export function AppSidebar() {
     <Sidebar>
       <SidebarHeader className="p-4">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-md bg-primary flex items-center justify-center flex-shrink-0 overflow-hidden">
-            {appBranding.orbiaLogoUrl ? (
-              <img
-                src={appBranding.orbiaLogoUrl}
-                alt={appBranding.orbiaName}
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              <span className="text-primary-foreground font-bold text-sm">O</span>
-            )}
-          </div>
+          <BrandLogo
+            src={appBranding.orbiaLogoUrl}
+            alt={appBranding.orbiaName || "ORBIA"}
+            brandName={appBranding.orbiaName || "ORBIA"}
+            variant="sidebar"
+          />
           <div className="min-w-0">
             <p className="font-bold text-sm tracking-tight truncate">
               {appBranding.orbiaName || "ORBIA"}
@@ -120,6 +117,7 @@ export function AppSidebar() {
               {menuItems
                 .filter((item) => !item.addon || addonStatus[item.addon])
                 .filter((item) => !item.adminOnly || isTenantAdmin)
+                .filter((item) => item.url !== "/app/branches" || planCode === "ESCALA")
                 .map((item) => {
                 const blocked = item.feature && !hasFeature(item.feature);
                 return (
@@ -144,6 +142,7 @@ export function AppSidebar() {
       <SidebarFooter className="p-4">
         <div className="flex items-center gap-3">
           <Avatar className="w-8 h-8 flex-shrink-0">
+            <AvatarImage src={user?.avatarUrl || undefined} alt={user?.fullName || "Usuario"} />
             <AvatarFallback className="text-xs">{initials}</AvatarFallback>
           </Avatar>
           <div className="min-w-0 flex-1">

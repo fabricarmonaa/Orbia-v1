@@ -31,6 +31,8 @@ const defaultForm = {
   name: "",
   description: "",
   category: "",
+  defaultAmount: "",
+  currency: "",
   isActive: true,
 };
 
@@ -68,6 +70,8 @@ function ExpenseDefinitionsTab({
       name: item.name || "",
       description: item.description || "",
       category: item.category || "",
+      defaultAmount: item.defaultAmount ? String(item.defaultAmount) : "",
+      currency: item.currency || "",
       isActive: item.isActive ?? true,
     });
   };
@@ -79,6 +83,10 @@ function ExpenseDefinitionsTab({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (type === "FIXED" && (!form.defaultAmount || parseFloat(form.defaultAmount) <= 0)) {
+      toast({ title: "Error", description: "Ingresá un monto mensual válido", variant: "destructive" });
+      return;
+    }
     setSaving(true);
     try {
       if (editingId) {
@@ -86,6 +94,8 @@ function ExpenseDefinitionsTab({
           name: form.name,
           description: form.description || null,
           category: form.category || null,
+          defaultAmount: form.defaultAmount ? parseFloat(form.defaultAmount) : null,
+          currency: form.currency || null,
           isActive: form.isActive,
         });
         toast({ title: "Gasto actualizado" });
@@ -95,6 +105,8 @@ function ExpenseDefinitionsTab({
           name: form.name,
           description: form.description || null,
           category: form.category || null,
+          defaultAmount: form.defaultAmount ? parseFloat(form.defaultAmount) : null,
+          currency: form.currency || null,
           isActive: form.isActive,
         });
         toast({ title: "Gasto creado" });
@@ -161,6 +173,27 @@ function ExpenseDefinitionsTab({
             rows={2}
           />
         </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <Label>{type === "FIXED" ? "Monto mensual" : "Monto sugerido (opcional)"}</Label>
+            <Input
+              type="number"
+              min="0"
+              step="0.01"
+              value={form.defaultAmount}
+              onChange={(e) => setForm({ ...form, defaultAmount: e.target.value })}
+              placeholder="0.00"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Moneda (opcional)</Label>
+            <Input
+              value={form.currency}
+              onChange={(e) => setForm({ ...form, currency: e.target.value })}
+              placeholder="ARS"
+            />
+          </div>
+        </div>
         <div className="flex items-center gap-3">
           <Switch
             checked={form.isActive}
@@ -207,6 +240,11 @@ function ExpenseDefinitionsTab({
                 </div>
                 {item.description && (
                   <p className="text-xs text-muted-foreground">{item.description}</p>
+                )}
+                {item.defaultAmount && (
+                  <p className="text-xs text-muted-foreground">
+                    Monto mensual: {item.currency || "$"} {parseFloat(item.defaultAmount).toFixed(2)}
+                  </p>
                 )}
                 <p className="text-xs text-muted-foreground">
                   Creado: {formatDate(item.createdAt)}

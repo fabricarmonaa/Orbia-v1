@@ -6,6 +6,7 @@ import {
   blockBranchScope,
   enforceBranchScope,
   requireTenantAdmin,
+  requirePlanCodes,
 } from "../auth";
 
 export function registerBranchRoutes(app: Express) {
@@ -14,6 +15,7 @@ export function registerBranchRoutes(app: Express) {
     tenantAuth,
     requireTenantAdmin,
     requireFeature("branches"),
+    requirePlanCodes(["ESCALA"]),
     async (req, res) => {
     try {
       const tenantId = req.auth!.tenantId!;
@@ -33,6 +35,7 @@ export function registerBranchRoutes(app: Express) {
     tenantAuth,
     requireTenantAdmin,
     requireFeature("branches"),
+    requirePlanCodes(["ESCALA"]),
     blockBranchScope,
     async (req, res) => {
     try {
@@ -65,6 +68,7 @@ export function registerBranchRoutes(app: Express) {
     tenantAuth,
     requireTenantAdmin,
     requireFeature("branches"),
+    requirePlanCodes(["ESCALA"]),
     enforceBranchScope,
     async (req, res) => {
     try {
@@ -87,6 +91,7 @@ export function registerBranchRoutes(app: Express) {
     tenantAuth,
     requireTenantAdmin,
     requireFeature("branches"),
+    requirePlanCodes(["ESCALA"]),
     enforceBranchScope,
     async (req, res) => {
     try {
@@ -109,6 +114,7 @@ export function registerBranchRoutes(app: Express) {
     tenantAuth,
     requireTenantAdmin,
     requireFeature("branches"),
+    requirePlanCodes(["ESCALA"]),
     blockBranchScope,
     async (req, res) => {
       try {
