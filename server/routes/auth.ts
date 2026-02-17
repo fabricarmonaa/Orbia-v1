@@ -1,15 +1,36 @@
-import type { Express } from "express";
+import type { Express, Request } from "express";
 import { storage } from "../storage";
 import { z } from "zod";
 import {
   generateToken,
   comparePassword,
+  verifyToken,
+  isIpAllowedForSuperAdmin,
+  getClientIp,
 } from "../auth";
 import { createRateLimiter } from "../middleware/rate-limit";
+import { db } from "../db";
+import { superAdminAuditLogs, superAdminTotp } from "@shared/schema";
+import { eq } from "drizzle-orm";
+import { verify as verifyTotp } from "otplib";
+
+type LockState = { failures: number; firstFailureAt: number; lockedUntil?: number };
+const superLoginByIp = new Map<string, LockState>();
+const superLoginByEmail = new Map<string, LockState>();
+
+const superMaxAttempts = parseInt(process.env.SUPERADMIN_MAX_ATTEMPTS || "6", 10);
+const superWindowMs = parseInt(process.env.SUPERADMIN_WINDOW_MS || String(15 * 60 * 1000), 10);
+const superLockMs = parseInt(process.env.SUPERADMIN_LOCK_MS || String(15 * 60 * 1000), 10);
+type TotpCheckResult = { valid?: boolean } | boolean | null | undefined;
+const superTotpByEmail = new Map<string, LockState>();
+const superTotpMaxAttempts = parseInt(process.env.SUPERADMIN_TOTP_MAX_ATTEMPTS || "5", 10);
+const superTotpLockMs = parseInt(process.env.SUPERADMIN_TOTP_LOCK_MS || String(10 * 60 * 1000), 10);
+
 
 const superLoginSchema = z.object({
   email: z.string().trim().email().max(120),
   password: z.string().min(6).max(128),
+  totpCode: z.string().trim().min(6).max(8).optional(),
 });
 
 const tenantLoginSchema = z.object({
@@ -34,21 +55,157 @@ const tenantLoginLimiter = createRateLimiter({
   code: "LOGIN_RATE_LIMIT",
 });
 
+function markFailure(map: Map<string, LockState>, key: string) {
+  const now = Date.now();
+  const current = map.get(key);
+  if (!current || now - current.firstFailureAt > superWindowMs) {
+    map.set(key, { failures: 1, firstFailureAt: now });
+    return;
+  }
+  const next: LockState = { ...current, failures: current.failures + 1 };
+  if (next.failures >= superMaxAttempts) {
+    next.lockedUntil = now + superLockMs;
+  }
+  map.set(key, next);
+}
+
+function clearFailures(keyIp: string, keyEmail: string) {
+  superLoginByIp.delete(keyIp);
+  superLoginByEmail.delete(keyEmail);
+}
+
+function getRemainingLockSeconds(map: Map<string, LockState>, key: string) {
+  const state = map.get(key);
+  if (!state?.lockedUntil) return 0;
+  return Math.max(0, Math.ceil((state.lockedUntil - Date.now()) / 1000));
+}
+
+function isLocked(map: Map<string, LockState>, key: string) {
+  const state = map.get(key);
+  if (!state?.lockedUntil) return false;
+  if (Date.now() > state.lockedUntil) {
+    map.delete(key);
+    return false;
+  }
+  return true;
+}
+
+
+function isTotpValid(result: TotpCheckResult) {
+  if (typeof result === "boolean") return result;
+  if (result && typeof result === "object" && "valid" in result) return result.valid === true;
+  return false;
+}
+
+async function logSuperSecurity(superAdminId: number | null, action: string, metadata: Record<string, unknown>) {
+  await db.insert(superAdminAuditLogs).values({
+    superAdminId,
+    action,
+    metadata,
+  });
+}
+
+
 export function registerAuthRoutes(app: Express) {
+  app.post("/api/auth/logout", async (req, res) => {
+    try {
+      const authHeader = req.headers.authorization;
+      if (authHeader?.startsWith("Bearer ")) {
+        const token = authHeader.substring(7);
+        try {
+          const payload = verifyToken(token);
+          if (payload.tenantId) {
+            await storage.createAuditLog({
+              tenantId: payload.tenantId,
+              userId: payload.userId,
+              action: "logout",
+              entityType: "auth",
+              metadata: {
+                ip: req.ip,
+                userAgent: req.headers["user-agent"] || null,
+              },
+            });
+          }
+        } catch {
+          // Stateless JWT best effort.
+        }
+      }
+      return res.json({ ok: true });
+    } catch {
+      return res.json({ ok: true });
+    }
+  });
+
   app.post("/api/auth/super/login", superLoginLimiter, async (req, res) => {
     try {
-      const { email, password } = superLoginSchema.parse(req.body);
-      if (!email || !password) {
-        return res.status(400).json({ error: "Email y contraseña requeridos" });
+      if (!isIpAllowedForSuperAdmin(req)) {
+        return res.status(403).json({ error: "Acceso restringido", code: "SUPERADMIN_IP_BLOCKED" });
       }
+
+      const { email, password, totpCode } = superLoginSchema.parse(req.body);
+      const ip = getClientIp(req);
+      const ipKey = `ip:${ip}`;
+      const emailKey = `email:${email.toLowerCase()}`;
+      const totpKey = `totp:${email.toLowerCase()}`;
+
+      if (isLocked(superLoginByIp, ipKey) || isLocked(superLoginByEmail, emailKey) || isLocked(superTotpByEmail, totpKey)) {
+        const remaining = Math.max(getRemainingLockSeconds(superLoginByIp, ipKey), getRemainingLockSeconds(superLoginByEmail, emailKey), getRemainingLockSeconds(superTotpByEmail, totpKey));
+        await logSuperSecurity(null, "SUPER_LOGIN_LOCKED", { ip, email, remainingSeconds: remaining });
+        return res.status(429).json({
+          error: "Acceso temporalmente bloqueado por intentos fallidos.",
+          code: "SUPERADMIN_LOCKED",
+          secondsRemaining: remaining,
+        });
+      }
+
       const user = await storage.getSuperAdminByEmail(email);
       if (!user) {
-        return res.status(401).json({ error: "Credenciales incorrectas" });
+        markFailure(superLoginByIp, ipKey);
+        markFailure(superLoginByEmail, emailKey);
+        await logSuperSecurity(null, "SUPER_LOGIN_FAIL", { ip, email, reason: "NOT_FOUND" });
+        return res.status(401).json({ error: "Credenciales incorrectas", code: "SUPERAUTH_INVALID" });
       }
+
       const valid = await comparePassword(password, user.password);
       if (!valid) {
-        return res.status(401).json({ error: "Credenciales incorrectas" });
+        markFailure(superLoginByIp, ipKey);
+        markFailure(superLoginByEmail, emailKey);
+        await logSuperSecurity(user.id, "SUPER_LOGIN_FAIL", { ip, email, reason: "PASSWORD" });
+        return res.status(401).json({ error: "Credenciales incorrectas", code: "SUPERAUTH_INVALID" });
       }
+
+      const totpRows = await db.select().from(superAdminTotp).where(eq(superAdminTotp.superAdminId, user.id)).limit(1);
+      const totp = totpRows[0];
+      if (totp?.enabled) {
+        if (!totpCode) {
+          markFailure(superTotpByEmail, totpKey);
+          await logSuperSecurity(user.id, "SUPER_LOGIN_FAIL", { ip, email, reason: "TOTP_REQUIRED" });
+          return res.status(401).json({ error: "Ingresá el código de verificación de 2 factores", code: "SUPERADMIN_2FA_REQUIRED" });
+        }
+        const totpResult = await verifyTotp({ token: totpCode, secret: totp.secret, strategy: "totp", digits: 6, period: 30, algorithm: "sha1" });
+        const ok = isTotpValid(totpResult);
+        if (!ok) {
+          const now = Date.now();
+          const currentTotp = superTotpByEmail.get(totpKey);
+          if (!currentTotp || now - currentTotp.firstFailureAt > superWindowMs) {
+            superTotpByEmail.set(totpKey, { failures: 1, firstFailureAt: now });
+          } else {
+            const next = { ...currentTotp, failures: currentTotp.failures + 1 };
+            if (next.failures >= superTotpMaxAttempts) {
+              next.lockedUntil = now + superTotpLockMs;
+            }
+            superTotpByEmail.set(totpKey, next);
+          }
+          await logSuperSecurity(user.id, "SUPER_LOGIN_FAIL", { ip, email, reason: "TOTP", totpResult });
+          return res.status(401).json({ error: "Código de verificación inválido", code: "SUPERADMIN_2FA_INVALID" });
+        }
+        superTotpByEmail.delete(totpKey);
+      }
+
+      clearFailures(ipKey, emailKey);
+      superTotpByEmail.delete(totpKey);
+      await logSuperSecurity(user.id, "SUPER_LOGIN_SUCCESS", { ip, email });
+
       const token = generateToken({
         userId: user.id,
         email: user.email,
@@ -67,25 +224,29 @@ export function registerAuthRoutes(app: Express) {
           tenantId: null,
           isSuperAdmin: true,
           branchId: null,
+          avatarUrl: user.avatarUrl || null,
         },
       });
     } catch (err: any) {
       if (err instanceof z.ZodError) {
-        return res.status(400).json({ error: "Datos inválidos", details: err.errors });
+        return res.status(400).json({ error: "Datos inválidos", code: "SUPERAUTH_INVALID_INPUT", details: err.errors });
       }
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "No se pudo iniciar sesión", code: "SUPERAUTH_ERROR" });
     }
   });
 
   app.post("/api/auth/login", tenantLoginLimiter, async (req, res) => {
     try {
       const { tenantCode, email, password } = tenantLoginSchema.parse(req.body);
-      if (!tenantCode || !email || !password) {
-        return res.status(400).json({ error: "Código, email y contraseña requeridos" });
-      }
       const tenant = await storage.getTenantByCode(tenantCode);
       if (!tenant) {
-        return res.status(401).json({ error: "Negocio no encontrado" });
+        return res.status(401).json({ error: "Negocio no encontrado", code: "TENANT_NOT_FOUND" });
+      }
+      if (tenant.deletedAt) {
+        return res.status(403).json({ error: "Negocio eliminado", code: "TENANT_DELETED" });
+      }
+      if (tenant.isBlocked) {
+        return res.status(403).json({ error: "Negocio bloqueado", code: "TENANT_BLOCKED" });
       }
       if (!tenant.isActive) {
         return res.status(403).json({ error: "Cuenta bloqueada por falta de pago. Contacte al administrador.", code: "ACCOUNT_BLOCKED" });
@@ -103,11 +264,11 @@ export function registerAuthRoutes(app: Express) {
       }
       const user = await storage.getUserByEmail(email, tenant.id);
       if (!user || !user.isActive) {
-        return res.status(401).json({ error: "Credenciales incorrectas" });
+        return res.status(401).json({ error: "Credenciales incorrectas", code: "AUTH_INVALID" });
       }
       const valid = await comparePassword(password, user.password);
       if (!valid) {
-        return res.status(401).json({ error: "Credenciales incorrectas" });
+        return res.status(401).json({ error: "Credenciales incorrectas", code: "AUTH_INVALID" });
       }
       let subscriptionWarning: string | null = null;
       if (tenant.subscriptionEndDate) {
@@ -151,14 +312,15 @@ export function registerAuthRoutes(app: Express) {
           isSuperAdmin: false,
           branchId: user.branchId,
           scope: user.scope || "TENANT",
+          avatarUrl: user.avatarUrl || null,
         },
         subscriptionWarning,
       });
     } catch (err: any) {
       if (err instanceof z.ZodError) {
-        return res.status(400).json({ error: "Datos inválidos", details: err.errors });
+        return res.status(400).json({ error: "Datos inválidos", code: "AUTH_INVALID_INPUT", details: err.errors });
       }
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "No se pudo iniciar sesión", code: "AUTH_ERROR" });
     }
   });
 }

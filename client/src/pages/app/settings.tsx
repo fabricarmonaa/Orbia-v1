@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { apiRequest, useAuth, getToken } from "@/lib/auth";
+import { parseApiError } from "@/lib/api-errors";
 import { usePlan } from "@/lib/plan";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -16,6 +17,7 @@ import { BillingSettings } from "@/components/settings/BillingSettings";
 import { BrandingSettings } from "@/components/settings/BrandingSettings";
 import { OperationsSettings } from "@/components/settings/OperationsSettings";
 import { AdvancedSettings } from "@/components/settings/AdvancedSettings";
+import { ApplicationSettings } from "@/components/settings/ApplicationSettings";
 import { PriceListPdfSettings } from "@/components/pdfs/PriceListPdfSettings";
 
 interface Config {
@@ -181,8 +183,8 @@ export default function SettingsPage() {
         body: formData,
       });
       if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || res.statusText);
+        const info = await parseApiError(res, { maxUploadBytes: 1000000 });
+        throw new Error(info.message);
       }
       const data = await res.json();
       if (data.url) {
@@ -251,6 +253,9 @@ export default function SettingsPage() {
   }
 
   const isAdmin = user?.role === "admin";
+  const planCode = (plan?.planCode || "").toUpperCase();
+  const isEconomic = planCode === "ECONOMICO";
+  const isEscala = planCode === "ESCALA";
   const sections = [
     {
       id: "account",
@@ -285,6 +290,7 @@ export default function SettingsPage() {
                 resetBranding={resetBranding}
                 previewOrder={previewOrder}
                 layoutPresets={layoutPresets}
+                planCode={planCode}
               />
             ),
           },
@@ -300,7 +306,12 @@ export default function SettingsPage() {
       label: "Operativo",
       content: <OperationsSettings />,
     },
-    ...(isAdmin
+    {
+      id: "application",
+      label: "Aplicación",
+      content: <ApplicationSettings />,
+    },
+    ...(isAdmin && !isEconomic
       ? [
           {
             id: "advanced",

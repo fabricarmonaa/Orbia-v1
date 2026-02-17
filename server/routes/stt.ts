@@ -1,48 +1,119 @@
 import type { Express } from "express";
 import { storage } from "../storage";
-import { tenantAuth, requireFeature, enforceBranchScope } from "../auth";
-import { sttRateLimiter, sttConcurrencyGuard, validateSttPayload } from "../middleware/stt-guards";
+import { tenantAuth, requireFeature, enforceBranchScope, requirePlanCodes } from "../auth";
+import { sttRateLimiter, sttConcurrencyGuard, validateSttPayload, estimateAudioDurationSec } from "../middleware/stt-guards";
+
+const STT_TIMEOUT_MS = parseInt(process.env.STT_TIMEOUT_MS || "30000", 10);
+const STT_RETRY_ON_FAILURE = process.env.STT_RETRY_ON_FAILURE === "true";
+const STT_DEBUG = process.env.STT_DEBUG === "true";
+
+function sttLog(message: string, data?: Record<string, unknown>) {
+  if (!STT_DEBUG) return;
+  console.log(`[stt] ${message}`, data || {});
+}
+
+function mapSttError(status: number, body?: any) {
+  if (status === 413 || body?.code === "PAYLOAD_TOO_LARGE") {
+    return { status: 413, code: "PAYLOAD_TOO_LARGE", error: "Audio demasiado largo. Probá un dictado más corto." };
+  }
+  if (status === 429 || body?.code === "RATE_LIMIT_EXCEEDED" || body?.code === "CONCURRENCY_LIMIT") {
+    return { status: 429, code: body?.code || "RATE_LIMIT_EXCEEDED", error: "Ya hay una transcripción en curso o alcanzaste el límite. Intentá nuevamente en unos segundos." };
+  }
+  if (status === 503 || body?.code === "AI_SERVICE_UNAVAILABLE") {
+    return { status: 503, code: "AI_SERVICE_UNAVAILABLE", error: "Servicio de dictado no disponible. Intentá de nuevo más tarde." };
+  }
+  if (status === 504) {
+    return { status: 504, code: "AI_TIMEOUT", error: "La transcripción tardó demasiado. Probá con un audio más corto." };
+  }
+  return { status: status >= 500 ? 500 : status, code: body?.code || "STT_PROCESSING_ERROR", error: "No se pudo transcribir. Probá de nuevo o hablá más cerca del micrófono." };
+}
+
+
+
+async function callAiStt(aiServiceUrl: string, audio: string, context: string, signal: AbortSignal) {
+  const aiRes = await fetch(`${aiServiceUrl}/api/stt`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ audio, context }),
+    signal,
+  });
+
+  if (!aiRes.ok) {
+    const errBody = await aiRes.json().catch(() => ({}));
+    const err = new Error(`AI service responded ${aiRes.status}`) as Error & { status?: number; body?: any };
+    err.status = aiRes.status;
+    err.body = errBody;
+    throw err;
+  }
+
+  return await aiRes.json() as { transcription: string; intent: any };
+}
 
 export function registerSttRoutes(app: Express) {
   app.post("/api/ai/stt",
     tenantAuth,
     requireFeature("stt"),
+    requirePlanCodes(["ESCALA"]),
     sttRateLimiter,
     sttConcurrencyGuard,
     validateSttPayload,
     async (req, res) => {
+      let timeout: NodeJS.Timeout | null = null;
+      let clientClosed = false;
+      const controller = new AbortController();
+
+      req.on("close", () => {
+        clientClosed = true;
+        controller.abort();
+      });
+
       try {
         const { audio, context } = req.body;
 
         const aiServiceUrl = process.env.AI_SERVICE_URL || "http://localhost:8001";
         let sttResult: { transcription: string; intent: any };
+        timeout = setTimeout(() => controller.abort(), STT_TIMEOUT_MS);
+
+        sttLog("incoming_audio", {
+          tenantId: req.auth?.tenantId,
+          userId: req.auth?.userId,
+          context,
+          base64Bytes: audio?.length,
+          estimatedDurationSec: estimateAudioDurationSec(audio),
+        });
 
         try {
-          const aiRes = await fetch(`${aiServiceUrl}/api/stt`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ audio, context }),
-            signal: AbortSignal.timeout(30000),
-          });
-          if (!aiRes.ok) {
-            const errBody = await aiRes.json().catch(() => ({}));
-            throw new Error((errBody as any).error || `AI service responded ${aiRes.status}`);
-          }
-          sttResult = await aiRes.json() as { transcription: string; intent: any };
+          sttResult = await callAiStt(aiServiceUrl, audio, context, controller.signal);
         } catch (fetchErr: any) {
-          if (
+          sttLog("ai_call_error", { message: fetchErr?.message, status: fetchErr?.status, body: fetchErr?.body });
+
+          const isUnavailable =
             fetchErr.name === "AbortError" ||
             fetchErr.code === "ECONNREFUSED" ||
             fetchErr?.cause?.code === "ECONNREFUSED" ||
-            fetchErr.message?.includes("fetch failed")
-          ) {
+            fetchErr.message?.includes("fetch failed");
+
+          if (isUnavailable && !clientClosed) {
             return res.status(503).json({
               error: "Servicio de IA no disponible. Intentá de nuevo más tarde.",
               code: "AI_SERVICE_UNAVAILABLE",
             });
           }
-          throw fetchErr;
+
+          if (STT_RETRY_ON_FAILURE && [502, 503, 504].includes(fetchErr?.status || 0) && !clientClosed) {
+            sttLog("retrying_ai_call_once");
+            sttResult = await callAiStt(aiServiceUrl, audio, context, controller.signal);
+          } else {
+            throw fetchErr;
+          }
         }
+
+        if (clientClosed || res.headersSent) return;
+
+        sttLog("ai_response_ok", {
+          transcriptionLength: sttResult.transcription?.length || 0,
+          intentKeys: sttResult.intent ? Object.keys(sttResult.intent) : [],
+        });
 
         const log = await storage.createSttLog({
           tenantId: req.auth!.tenantId!,
@@ -53,28 +124,41 @@ export function registerSttRoutes(app: Express) {
           confirmed: false,
         });
 
-        res.json({
-          data: {
-            logId: log.id,
-            transcription: sttResult.transcription,
-            intent: sttResult.intent,
-            context,
-          },
-        });
+        if (!res.headersSent) {
+          res.json({
+            data: {
+              logId: log.id,
+              transcription: sttResult.transcription,
+              intent: sttResult.intent,
+              context,
+            },
+          });
+        }
       } catch (err: any) {
-        console.error("STT error:", err);
-        res.status(500).json({ error: "Error procesando audio: " + (err.message || "desconocido") });
+        const mapped = mapSttError(err?.status || 500, err?.body);
+        sttLog("stt_error", { message: err?.message, mapped, clientClosed });
+        if (!clientClosed && !res.headersSent) {
+          res.status(mapped.status).json({ error: mapped.error, code: mapped.code });
+        }
+      } finally {
+        if (timeout) clearTimeout(timeout);
       }
     });
 
-  app.post("/api/ai/apply", tenantAuth, requireFeature("stt"), enforceBranchScope, async (req, res) => {
+  app.post("/api/ai/apply", tenantAuth, requireFeature("stt"), requirePlanCodes(["ESCALA"]), enforceBranchScope, async (req, res) => {
     try {
-      const { context, intent, logId } = req.body;
-      if (!context || !intent) {
-        return res.status(400).json({ error: "Contexto e intent requeridos" });
+      const { context, intent, logId } = req.body || {};
+      if (!context || !intent || typeof context !== "string" || typeof intent !== "object") {
+        return res.status(400).json({ error: "Datos inválidos. Revisá los campos e intentá de nuevo.", code: "INVALID_PAYLOAD" });
       }
       const tenantId = req.auth!.tenantId!;
       const branchId = req.auth!.scope === "BRANCH" ? req.auth!.branchId : (intent.branchId || null);
+      if (branchId) {
+        const branch = await storage.getBranchById(Number(branchId), tenantId);
+        if (!branch) {
+          return res.status(404).json({ error: "Sucursal no encontrada", code: "BRANCH_NOT_FOUND" });
+        }
+      }
 
       const missingFields: string[] = [];
       if (context === "products" && intent.action === "create") {
@@ -88,9 +172,9 @@ export function registerSttRoutes(app: Express) {
 
       if (missingFields.length > 0) {
         return res.status(400).json({
-          error: "MISSING_FIELDS",
-          missing_fields: missingFields,
-          message: `Faltan campos requeridos: ${missingFields.join(", ")}`,
+          error: `Faltan campos requeridos: ${missingFields.join(", ")}`,
+          code: "MISSING_FIELDS",
+          missingFields,
         });
       }
 
@@ -180,9 +264,8 @@ export function registerSttRoutes(app: Express) {
       }
 
       res.status(201).json({ data: result, entityType });
-    } catch (err: any) {
-      console.error("Apply intent error:", err);
-      res.status(500).json({ error: "Error aplicando intent: " + (err.message || "desconocido") });
+    } catch {
+      res.status(500).json({ error: "No se pudo aplicar el comando", code: "STT_APPLY_ERROR" });
     }
   });
 }

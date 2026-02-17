@@ -15,7 +15,7 @@ const MIME_EXTENSION_MAP: Record<string, string> = {
 
 const ALLOWED_EXTENSIONS = new Set(Object.values(MIME_EXTENSION_MAP).concat(".jpeg"));
 
-export type UploadDirectory = "profiles" | "delivery" | "tenant-logos" | "app";
+export type UploadDirectory = "profiles" | "delivery" | "tenant-logos" | "app" | "avatars";
 
 export class UploadValidationError extends Error {
   status: number;

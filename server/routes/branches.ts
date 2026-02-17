@@ -6,6 +6,7 @@ import {
   blockBranchScope,
   enforceBranchScope,
   requireTenantAdmin,
+  requirePlanCodes,
 } from "../auth";
 
 export function registerBranchRoutes(app: Express) {
@@ -14,6 +15,7 @@ export function registerBranchRoutes(app: Express) {
     tenantAuth,
     requireTenantAdmin,
     requireFeature("branches"),
+    requirePlanCodes(["ESCALA"]),
     async (req, res) => {
     try {
       const tenantId = req.auth!.tenantId!;
@@ -24,7 +26,7 @@ export function registerBranchRoutes(app: Express) {
       const data = await storage.getBranches(tenantId);
       res.json({ data });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -33,6 +35,7 @@ export function registerBranchRoutes(app: Express) {
     tenantAuth,
     requireTenantAdmin,
     requireFeature("branches"),
+    requirePlanCodes(["ESCALA"]),
     blockBranchScope,
     async (req, res) => {
     try {
@@ -56,7 +59,7 @@ export function registerBranchRoutes(app: Express) {
       });
       res.status(201).json({ data });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -65,6 +68,7 @@ export function registerBranchRoutes(app: Express) {
     tenantAuth,
     requireTenantAdmin,
     requireFeature("branches"),
+    requirePlanCodes(["ESCALA"]),
     enforceBranchScope,
     async (req, res) => {
     try {
@@ -78,7 +82,7 @@ export function registerBranchRoutes(app: Express) {
       const data = await storage.getOrdersByBranch(tenantId, branchId);
       res.json({ data });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -87,6 +91,7 @@ export function registerBranchRoutes(app: Express) {
     tenantAuth,
     requireTenantAdmin,
     requireFeature("branches"),
+    requirePlanCodes(["ESCALA"]),
     enforceBranchScope,
     async (req, res) => {
     try {
@@ -100,7 +105,7 @@ export function registerBranchRoutes(app: Express) {
       const data = await storage.getCashMovementsByBranch(tenantId, branchId);
       res.json({ data });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -109,6 +114,7 @@ export function registerBranchRoutes(app: Express) {
     tenantAuth,
     requireTenantAdmin,
     requireFeature("branches"),
+    requirePlanCodes(["ESCALA"]),
     blockBranchScope,
     async (req, res) => {
       try {
@@ -146,7 +152,7 @@ export function registerBranchRoutes(app: Express) {
         });
         res.json({ data: deleted });
       } catch (err: any) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
       }
     }
   );
@@ -156,7 +162,7 @@ export function registerBranchRoutes(app: Express) {
       const data = await storage.getOrderStatuses(req.auth!.tenantId!);
       res.json({ data });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 }

@@ -3,6 +3,8 @@ import { storage } from "../storage";
 import { tenantAuth, enforceBranchScope } from "../auth";
 import { z } from "zod";
 import { randomUUID } from "crypto";
+import { refreshMetricsForDate } from "../services/metrics-refresh";
+import { getIdempotencyKey, hashPayload, getIdempotentResponse, saveIdempotentResponse } from "../services/idempotency";
 
 const optionalText = (max: number) =>
   z.preprocess(
@@ -26,7 +28,7 @@ const createOrderSchema = z.object({
   deliveryAddress: optionalText(200).nullable(),
   deliveryCity: optionalText(80).nullable(),
   deliveryAddressNotes: optionalText(200).nullable(),
-});
+}).strict();
 
 const orderStatusSchema = z.object({
   statusId: z.coerce.number().int().positive(),
@@ -50,7 +52,7 @@ export function registerOrderRoutes(app: Express) {
       }
       res.json({ data });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "No se pudo procesar la orden", code: "ORDER_ERROR" });
     }
   });
 
@@ -58,8 +60,30 @@ export function registerOrderRoutes(app: Express) {
     try {
       const payload = createOrderSchema.parse(req.body);
       const tenantId = req.auth!.tenantId!;
+      const userId = req.auth!.userId;
+      const idemKey = getIdempotencyKey(req.headers["idempotency-key"] as string | undefined);
+      const requestHash = hashPayload(payload);
+
+      if (idemKey) {
+        const cached = await getIdempotentResponse(tenantId, userId, idemKey, "POST:/api/orders", requestHash).catch((e) => {
+          if (e.message === "IDEMPOTENCY_HASH_MISMATCH") {
+            return { status: 409, body: { error: "La misma Idempotency-Key fue usada con otro payload", code: "IDEMPOTENCY_HASH_MISMATCH" } };
+          }
+          throw e;
+        });
+        if (cached) {
+          return res.status(cached.status).json(cached.body as any);
+        }
+      }
+
       const orderNumber = await storage.getNextOrderNumber(tenantId);
       const branchId = req.auth!.scope === "BRANCH" ? req.auth!.branchId : (payload.branchId || null);
+      if (branchId) {
+        const branch = await storage.getBranchById(branchId, tenantId);
+        if (!branch) {
+          return res.status(404).json({ error: "Sucursal no encontrada", code: "BRANCH_NOT_FOUND" });
+        }
+      }
       const data = await storage.createOrder({
         tenantId,
         orderNumber,
@@ -89,12 +113,25 @@ export function registerOrderRoutes(app: Express) {
           note: "Pedido creado",
         });
       }
-      res.status(201).json({ data });
+      await refreshMetricsForDate(tenantId, new Date());
+      const responseBody = { data };
+      if (idemKey) {
+        await saveIdempotentResponse({
+          tenantId,
+          userId,
+          key: idemKey,
+          route: "POST:/api/orders",
+          requestHash,
+          status: 201,
+          body: responseBody,
+        });
+      }
+      res.status(201).json(responseBody);
     } catch (err: any) {
       if (err instanceof z.ZodError) {
-        return res.status(400).json({ error: "Datos inválidos", details: err.errors });
+        return res.status(400).json({ error: "Datos inválidos", code: "ORDER_INVALID", details: err.errors });
       }
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "No se pudo procesar la orden", code: "ORDER_ERROR" });
     }
   });
 
@@ -125,12 +162,13 @@ export function registerOrderRoutes(app: Express) {
           await storage.updateOrderTracking(orderId, tenantId, order.publicTrackingId, expiresAt);
         }
       }
+      await refreshMetricsForDate(tenantId, new Date());
       res.json({ ok: true });
     } catch (err: any) {
       if (err instanceof z.ZodError) {
-        return res.status(400).json({ error: "Datos inválidos", details: err.errors });
+        return res.status(400).json({ error: "Datos inválidos", code: "ORDER_INVALID", details: err.errors });
       }
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "No se pudo procesar la orden", code: "ORDER_ERROR" });
     }
   });
 
@@ -151,7 +189,7 @@ export function registerOrderRoutes(app: Express) {
       const data = await storage.getOrderComments(orderId, tenantId);
       res.json({ data });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "No se pudo procesar la orden", code: "ORDER_ERROR" });
     }
   });
 
@@ -180,9 +218,9 @@ export function registerOrderRoutes(app: Express) {
       res.status(201).json({ data });
     } catch (err: any) {
       if (err instanceof z.ZodError) {
-        return res.status(400).json({ error: "Datos inválidos", details: err.errors });
+        return res.status(400).json({ error: "Datos inválidos", code: "ORDER_INVALID", details: err.errors });
       }
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "No se pudo procesar la orden", code: "ORDER_ERROR" });
     }
   });
 
@@ -203,7 +241,7 @@ export function registerOrderRoutes(app: Express) {
       const data = await storage.getOrderHistory(orderId, tenantId);
       res.json({ data });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "No se pudo procesar la orden", code: "ORDER_ERROR" });
     }
   });
 
@@ -220,7 +258,7 @@ export function registerOrderRoutes(app: Express) {
       await storage.updateOrderTracking(orderId, tenantId, trackingId, expiresAt);
       res.json({ data: { publicTrackingId: trackingId, expiresAt } });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "No se pudo procesar la orden", code: "ORDER_ERROR" });
     }
   });
 
@@ -230,7 +268,7 @@ export function registerOrderRoutes(app: Express) {
       const proofs = await storage.getDeliveryProofsByOrder(orderId);
       res.json({ data: proofs });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "No se pudo procesar la orden", code: "ORDER_ERROR" });
     }
   });
 }

@@ -12,6 +12,52 @@ if (!JWT_SECRET_ENV) {
 
 const JWT_SECRET: string = JWT_SECRET_ENV;
 
+function unauthorizedResponse(res: Response, type: "required" | "expired" | "invalid") {
+  if (type == "required") {
+    return res.status(401).json({ error: "Token requerido", code: "AUTH_REQUIRED" });
+  }
+  if (type == "expired") {
+    return res.status(401).json({ error: "Sesión expirada. Iniciá sesión nuevamente", code: "AUTH_EXPIRED" });
+  }
+  return res.status(401).json({ error: "Token inválido", code: "AUTH_INVALID" });
+}
+
+
+
+
+
+export function getClientIp(req: Request) {
+  const trustProxy = process.env.TRUST_PROXY === "true";
+  if (trustProxy) {
+    const forwarded = req.headers["x-forwarded-for"];
+    if (typeof forwarded === "string" && forwarded.length > 0) {
+      return forwarded.split(",")[0].trim();
+    }
+  }
+  return req.ip || req.socket.remoteAddress || "unknown";
+}
+
+export function isIpAllowedForSuperAdmin(req: Request) {
+  const raw = (process.env.SUPERADMIN_IP_ALLOWLIST || "").trim();
+  if (!raw) return true;
+  const allow = raw.split(",").map((x) => x.trim()).filter(Boolean);
+  const ip = getClientIp(req);
+  return allow.includes(ip);
+}
+
+function buildUpgradeUrl(tenantCode?: string | null) {
+  if (!tenantCode) return "https://wa.me/5492236979026";
+  const text = `Hola! Mi código de negocio es ${tenantCode} y quiero mejorar mi plan`;
+  return `https://wa.me/5492236979026?text=${encodeURIComponent(text)}`;
+}
+
+function mapJwtError(err: unknown): "expired" | "invalid" {
+  if (err && typeof err === "object" && "name" in err && (err as any).name === "TokenExpiredError") {
+    return "expired";
+  }
+  return "invalid";
+}
+
 export interface JWTPayload {
   userId: number;
   email: string;
@@ -99,9 +145,12 @@ declare global {
 
 export function superAuth(req: Request, res: Response, next: NextFunction) {
   try {
+    if (!isIpAllowedForSuperAdmin(req)) {
+      return res.status(403).json({ error: "Acceso restringido", code: "SUPERADMIN_IP_BLOCKED" });
+    }
     const authHeader = req.headers.authorization;
     if (!authHeader?.startsWith("Bearer ")) {
-      return res.status(401).json({ error: "Token requerido" });
+      return unauthorizedResponse(res, "required");
     }
     const token = authHeader.substring(7);
     const payload = verifyToken(token);
@@ -110,8 +159,8 @@ export function superAuth(req: Request, res: Response, next: NextFunction) {
     }
     req.auth = payload;
     next();
-  } catch {
-    return res.status(401).json({ error: "Token inválido" });
+  } catch (err) {
+    return unauthorizedResponse(res, mapJwtError(err));
   }
 }
 
@@ -119,7 +168,7 @@ export function tenantAuth(req: Request, res: Response, next: NextFunction) {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader?.startsWith("Bearer ")) {
-      return res.status(401).json({ error: "Token requerido" });
+      return unauthorizedResponse(res, "required");
     }
     const token = authHeader.substring(7);
     const payload = verifyToken(token);
@@ -127,9 +176,22 @@ export function tenantAuth(req: Request, res: Response, next: NextFunction) {
       return res.status(403).json({ error: "Acceso denegado" });
     }
     req.auth = payload;
-    next();
-  } catch {
-    return res.status(401).json({ error: "Token inválido" });
+    storage.getTenantById(payload.tenantId)
+      .then((tenant) => {
+        if (!tenant || tenant.deletedAt) {
+          return res.status(403).json({ error: "Negocio eliminado", code: "TENANT_DELETED" });
+        }
+        if (tenant.isBlocked) {
+          return res.status(403).json({ error: "Negocio bloqueado", code: "TENANT_BLOCKED" });
+        }
+        if (!tenant.isActive) {
+          return res.status(403).json({ error: "Cuenta bloqueada por falta de pago. Contacte al administrador.", code: "ACCOUNT_BLOCKED" });
+        }
+        next();
+      })
+      .catch(() => res.status(500).json({ error: "Error verificando negocio" }));
+  } catch (err) {
+    return unauthorizedResponse(res, mapJwtError(err));
   }
 }
 
@@ -164,16 +226,76 @@ export function requireFeature(featureKey: string) {
       }
       req.plan = plan;
       if (!plan.features[featureKey]) {
+        const tenant = await storage.getTenantById(req.auth.tenantId);
         return res.status(403).json({
           error: `Tu plan "${plan.name}" no incluye esta funcionalidad. Mejorá tu plan para acceder.`,
           code: "FEATURE_BLOCKED",
           feature: featureKey,
           currentPlan: plan.planCode,
+          upgradeUrl: buildUpgradeUrl(tenant?.code),
         });
       }
       next();
     } catch {
       return res.status(500).json({ error: "Error verificando plan" });
+    }
+  };
+}
+
+
+export function requirePlanCodes(allowedPlanCodes: string[]) {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.auth?.tenantId) {
+        return res.status(403).json({ error: "Acceso denegado", code: "FORBIDDEN" });
+      }
+      const plan = await getTenantPlan(req.auth.tenantId);
+      if (!plan) {
+        return res.status(403).json({ error: "Sin plan asignado", code: "NO_PLAN" });
+      }
+      req.plan = plan;
+      const planCode = (plan.planCode || "").toUpperCase();
+      const allowed = allowedPlanCodes.map((c) => c.toUpperCase());
+      if (!allowed.includes(planCode)) {
+        const tenant = await storage.getTenantById(req.auth.tenantId);
+        return res.status(403).json({
+          error: "Tu plan no incluye esta función.",
+          code: "FEATURE_BLOCKED",
+          currentPlan: plan.planCode,
+          upgradeUrl: buildUpgradeUrl(tenant?.code),
+        });
+      }
+      next();
+    } catch {
+      return res.status(500).json({ error: "Error verificando plan", code: "PLAN_CHECK_ERROR" });
+    }
+  };
+}
+
+export function requireNotPlanCodes(blockedPlanCodes: string[]) {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.auth?.tenantId) {
+        return res.status(403).json({ error: "Acceso denegado", code: "FORBIDDEN" });
+      }
+      const plan = await getTenantPlan(req.auth.tenantId);
+      if (!plan) {
+        return res.status(403).json({ error: "Sin plan asignado", code: "NO_PLAN" });
+      }
+      req.plan = plan;
+      const blocked = blockedPlanCodes.map((c) => c.toUpperCase());
+      if (blocked.includes((plan.planCode || "").toUpperCase())) {
+        const tenant = await storage.getTenantById(req.auth.tenantId);
+        return res.status(403).json({
+          error: "Tu plan no incluye esta función. Mejorá tu plan para usarla.",
+          code: "FEATURE_BLOCKED",
+          currentPlan: plan.planCode,
+          upgradeUrl: buildUpgradeUrl(tenant?.code),
+        });
+      }
+      next();
+    } catch {
+      return res.status(500).json({ error: "Error verificando plan", code: "PLAN_CHECK_ERROR" });
     }
   };
 }
@@ -204,7 +326,7 @@ export function deliveryAuth(req: Request, res: Response, next: NextFunction) {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader?.startsWith("Bearer ")) {
-      return res.status(401).json({ error: "Token requerido" });
+      return unauthorizedResponse(res, "required");
     }
     const token = authHeader.substring(7);
     const payload = verifyToken(token);
@@ -213,8 +335,8 @@ export function deliveryAuth(req: Request, res: Response, next: NextFunction) {
     }
     req.auth = payload;
     next();
-  } catch {
-    return res.status(401).json({ error: "Token inválido" });
+  } catch (err) {
+    return unauthorizedResponse(res, mapJwtError(err));
   }
 }
 
@@ -294,4 +416,9 @@ export function requireTenantAdmin(req: Request, res: Response, next: NextFuncti
     return res.status(403).json({ error: "Acceso denegado" });
   }
   next();
+}
+
+
+export function requirePlanFeature(featureKey: string) {
+  return requireFeature(featureKey);
 }

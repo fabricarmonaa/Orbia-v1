@@ -7,9 +7,48 @@ import {
   tenantAuth,
   requireAddon,
   deliveryAuth,
+  requireTenantAdmin,
+  blockBranchScope,
 } from "../auth";
 import { deliveryUpload } from "./uploads";
 import { handleSingleUpload } from "../middleware/upload-guards";
+import { z } from "zod";
+
+
+
+const tenantAgentSchema = z.object({
+  dni: z.string().trim().min(6).max(20),
+  firstName: z.string().trim().min(2).max(80),
+  lastName: z.string().trim().min(2).max(80),
+  phone: z.string().trim().min(6).max(40),
+  pin: z.string().trim().min(4).max(20),
+}).strict();
+
+const tenantAgentUpdateSchema = z.object({
+  firstName: z.string().trim().min(2).max(80).optional(),
+  lastName: z.string().trim().min(2).max(80).optional(),
+  phone: z.string().trim().min(6).max(40).optional(),
+  pin: z.string().trim().min(4).max(20).optional(),
+  isActive: z.boolean().optional(),
+}).strict();
+
+const actionStateSchema = z.object({
+  code: z.string().trim().min(2).max(40),
+  label: z.string().trim().min(2).max(80),
+  requiresPhoto: z.boolean().optional(),
+  requiresComment: z.boolean().optional(),
+  nextOrderStatusId: z.coerce.number().int().positive().optional().nullable(),
+  sortOrder: z.coerce.number().int().min(0).optional(),
+}).strict();
+
+const actionStateUpdateSchema = z.object({
+  label: z.string().trim().min(2).max(80).optional(),
+  requiresPhoto: z.boolean().optional(),
+  requiresComment: z.boolean().optional(),
+  nextOrderStatusId: z.coerce.number().int().positive().optional().nullable(),
+  sortOrder: z.coerce.number().int().min(0).optional(),
+  isActive: z.boolean().optional(),
+}).strict();
 
 export function registerDeliveryRoutes(app: Express) {
   app.post("/api/delivery/auth/login", async (req, res) => {
@@ -56,26 +95,23 @@ export function registerDeliveryRoutes(app: Express) {
         tenantName: tenant.name,
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
-  app.get("/api/delivery/agents", tenantAuth, requireAddon("delivery"), async (req, res) => {
+  app.get("/api/delivery/agents", tenantAuth, requireTenantAdmin, blockBranchScope, requireAddon("delivery"), async (req, res) => {
     try {
       const agents = await storage.getDeliveryAgents(req.auth!.tenantId!);
       const safeAgents = agents.map(({ pinHash, ...rest }) => rest);
       res.json({ data: safeAgents });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
-  app.post("/api/delivery/agents", tenantAuth, requireAddon("delivery"), async (req, res) => {
+  app.post("/api/delivery/agents", tenantAuth, requireTenantAdmin, blockBranchScope, requireAddon("delivery"), async (req, res) => {
     try {
-      const { dni, firstName, lastName, phone, pin } = req.body;
-      if (!dni || !firstName || !lastName || !phone || !pin) {
-        return res.status(400).json({ error: "DNI, nombre, apellido, teléfono y PIN son obligatorios" });
-      }
+      const { dni, firstName, lastName, phone, pin } = tenantAgentSchema.parse(req.body);
       const existing = await storage.getDeliveryAgentByDni(dni, req.auth!.tenantId!);
       if (existing) {
         return res.status(409).json({ error: "Ya existe un delivery con ese DNI" });
@@ -93,14 +129,14 @@ export function registerDeliveryRoutes(app: Express) {
       const { pinHash: _, ...safeAgent } = agent;
       res.status(201).json({ data: safeAgent });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
-  app.patch("/api/delivery/agents/:id", tenantAuth, requireAddon("delivery"), async (req, res) => {
+  app.patch("/api/delivery/agents/:id", tenantAuth, requireTenantAdmin, blockBranchScope, requireAddon("delivery"), async (req, res) => {
     try {
       const id = parseInt(req.params.id as string);
-      const { firstName, lastName, phone, pin, isActive } = req.body;
+      const { firstName, lastName, phone, pin, isActive } = tenantAgentUpdateSchema.parse(req.body);
       const updates: any = {};
       if (firstName !== undefined) updates.firstName = firstName;
       if (lastName !== undefined) updates.lastName = lastName;
@@ -112,11 +148,11 @@ export function registerDeliveryRoutes(app: Express) {
       const { pinHash: _, ...safeAgent } = agent;
       res.json({ data: safeAgent });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
-  app.patch("/api/delivery/agents/:id/toggle", tenantAuth, requireAddon("delivery"), async (req, res) => {
+  app.patch("/api/delivery/agents/:id/toggle", tenantAuth, requireTenantAdmin, blockBranchScope, requireAddon("delivery"), async (req, res) => {
     try {
       const id = parseInt(req.params.id as string);
       const agent = await storage.getDeliveryAgentById(id, req.auth!.tenantId!);
@@ -124,23 +160,22 @@ export function registerDeliveryRoutes(app: Express) {
       await storage.toggleDeliveryAgentActive(id, req.auth!.tenantId!, !agent.isActive);
       res.json({ data: { isActive: !agent.isActive } });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
-  app.get("/api/delivery/action-states", tenantAuth, requireAddon("delivery"), async (req, res) => {
+  app.get("/api/delivery/action-states", tenantAuth, requireTenantAdmin, blockBranchScope, requireAddon("delivery"), async (req, res) => {
     try {
       const states = await storage.getDeliveryActionStates(req.auth!.tenantId!);
       res.json({ data: states });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
-  app.post("/api/delivery/action-states", tenantAuth, requireAddon("delivery"), async (req, res) => {
+  app.post("/api/delivery/action-states", tenantAuth, requireTenantAdmin, blockBranchScope, requireAddon("delivery"), async (req, res) => {
     try {
-      const { code, label, requiresPhoto, requiresComment, nextOrderStatusId, sortOrder } = req.body;
-      if (!code || !label) return res.status(400).json({ error: "code y label son obligatorios" });
+      const { code, label, requiresPhoto, requiresComment, nextOrderStatusId, sortOrder } = actionStateSchema.parse(req.body);
       const state = await storage.createDeliveryActionState({
         tenantId: req.auth!.tenantId!,
         code,
@@ -152,31 +187,31 @@ export function registerDeliveryRoutes(app: Express) {
       });
       res.status(201).json({ data: state });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
-  app.put("/api/delivery/action-states/:id", tenantAuth, requireAddon("delivery"), async (req, res) => {
+  app.put("/api/delivery/action-states/:id", tenantAuth, requireTenantAdmin, blockBranchScope, requireAddon("delivery"), async (req, res) => {
     try {
       const id = parseInt(req.params.id as string);
       const state = await storage.updateDeliveryActionState(id, req.auth!.tenantId!, req.body);
       res.json({ data: state });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
-  app.delete("/api/delivery/action-states/:id", tenantAuth, requireAddon("delivery"), async (req, res) => {
+  app.delete("/api/delivery/action-states/:id", tenantAuth, requireTenantAdmin, blockBranchScope, requireAddon("delivery"), async (req, res) => {
     try {
       const id = parseInt(req.params.id as string);
       await storage.deleteDeliveryActionState(id, req.auth!.tenantId!);
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
-  app.get("/api/delivery/routes", tenantAuth, requireAddon("delivery"), async (req, res) => {
+  app.get("/api/delivery/routes", tenantAuth, requireTenantAdmin, blockBranchScope, requireAddon("delivery"), async (req, res) => {
     try {
       const routes = await storage.getDeliveryRoutes(req.auth!.tenantId!);
       const routesWithStops = await Promise.all(
@@ -187,16 +222,16 @@ export function registerDeliveryRoutes(app: Express) {
       );
       res.json({ data: routesWithStops });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
-  app.get("/api/delivery/orders", tenantAuth, requireAddon("delivery"), async (req, res) => {
+  app.get("/api/delivery/orders", tenantAuth, requireTenantAdmin, blockBranchScope, requireAddon("delivery"), async (req, res) => {
     try {
       const deliveryOrders = await storage.getDeliveryOrders(req.auth!.tenantId!);
       res.json({ data: deliveryOrders });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -205,7 +240,7 @@ export function registerDeliveryRoutes(app: Express) {
       const states = await storage.getDeliveryActionStates(req.auth!.tenantId!);
       res.json({ data: states });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -217,7 +252,7 @@ export function registerDeliveryRoutes(app: Express) {
       const tenant = await storage.getTenantById(req.auth!.tenantId!);
       res.json({ data: safeAgent, tenantName: tenant?.name });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -234,7 +269,7 @@ export function registerDeliveryRoutes(app: Express) {
       }));
       res.json({ data: enriched });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -288,7 +323,7 @@ export function registerDeliveryRoutes(app: Express) {
       const stops = await storage.getRouteStops(route.id);
       res.status(201).json({ data: { ...route, directionsUrl, stops } });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -305,7 +340,7 @@ export function registerDeliveryRoutes(app: Express) {
       );
       res.json({ data: { ...route, stops: enrichedStops } });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -315,7 +350,7 @@ export function registerDeliveryRoutes(app: Express) {
       const completed = routes.filter((r) => r.status === "completed");
       res.json({ data: completed });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -336,7 +371,7 @@ export function registerDeliveryRoutes(app: Express) {
       );
       res.json({ data: { ...route, stops: enrichedStops } });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -393,7 +428,7 @@ export function registerDeliveryRoutes(app: Express) {
 
         res.json({ data: proof });
       } catch (err: any) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
       }
     }
   );
@@ -415,7 +450,7 @@ export function registerDeliveryRoutes(app: Express) {
       await storage.completeDeliveryRoute(routeId, req.auth!.tenantId!);
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 }

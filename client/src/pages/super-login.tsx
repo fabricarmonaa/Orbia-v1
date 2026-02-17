@@ -6,14 +6,17 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Shield, Eye, EyeOff } from "lucide-react";
 import { login } from "@/lib/auth";
+import { parseApiError } from "@/lib/api-errors";
 import { useToast } from "@/hooks/use-toast";
 import { useBranding } from "@/context/BrandingContext";
+import { BrandLogo } from "@/components/branding/BrandLogo";
 
 export default function SuperLogin() {
   const [, setLocation] = useLocation();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [totpCode, setTotpCode] = useState("");
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
   const { appBranding } = useBranding();
@@ -25,10 +28,13 @@ export default function SuperLogin() {
       const res = await fetch("/api/auth/super/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, totpCode: totpCode || undefined }),
       });
+      if (!res.ok) {
+        const info = await parseApiError(res);
+        throw new Error(info.message);
+      }
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Error de autenticación");
       login(data.token, data.user);
       setLocation("/owner");
     } catch (err: any) {
@@ -42,16 +48,13 @@ export default function SuperLogin() {
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-md bg-primary mb-4 overflow-hidden">
-            {appBranding.orbiaLogoUrl ? (
-              <img
-                src={appBranding.orbiaLogoUrl}
-                alt={appBranding.orbiaName}
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              <Shield className="w-8 h-8 text-primary-foreground" />
-            )}
+          <div className="flex justify-center mb-4">
+            <BrandLogo
+              src={appBranding.orbiaLogoUrl}
+              alt={appBranding.orbiaName || "ORBIA"}
+              brandName={appBranding.orbiaName || "ORBIA"}
+              variant="login"
+            />
           </div>
           <h1 className="text-2xl font-bold tracking-tight">
             {appBranding.orbiaName || "ORBIA"}
@@ -72,7 +75,7 @@ export default function SuperLogin() {
                 <Input
                   id="email"
                   type="email"
-                  placeholder="admin@orbia.app"
+                  placeholder="tu-email@dominio.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
@@ -103,6 +106,19 @@ export default function SuperLogin() {
                   </Button>
                 </div>
               </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="totp">Código 2FA (si está habilitado)</Label>
+                <Input
+                  id="totp"
+                  inputMode="numeric"
+                  placeholder="123456"
+                  value={totpCode}
+                  onChange={(e) => setTotpCode(e.target.value)}
+                  data-testid="input-totp"
+                />
+              </div>
+
               <Button
                 type="submit"
                 className="w-full"

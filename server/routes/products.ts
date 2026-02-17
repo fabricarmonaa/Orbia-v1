@@ -1,4 +1,5 @@
 import type { Express } from "express";
+import { z } from "zod";
 import { storage } from "../storage";
 import {
   tenantAuth,
@@ -6,7 +7,27 @@ import {
   enforceBranchScope,
   blockBranchScope,
   requireTenantAdmin,
+  getTenantPlan,
 } from "../auth";
+import { queryProductsByFilters, productFiltersSchema } from "../services/product-filters";
+import { generatePriceListPdf } from "../services/pdf/price-list";
+
+const productInputSchema = z.object({
+  name: z.string().trim().min(2).max(200),
+  description: z.string().trim().max(1000).optional().nullable(),
+  price: z.coerce.number().min(0),
+  sku: z.string().trim().max(100).optional().nullable(),
+  categoryId: z.coerce.number().int().positive().optional().nullable(),
+  cost: z.coerce.number().min(0).optional().nullable(),
+  stock: z.coerce.number().int().min(0).optional().nullable(),
+});
+
+const productUpdateSchema = productInputSchema.partial();
+
+function toNumber(value: string | number | null | undefined) {
+  if (value === null || value === undefined) return 0;
+  return Number(value);
+}
 
 export function registerProductRoutes(app: Express) {
   app.get("/api/product-categories", tenantAuth, requireFeature("products"), async (req, res) => {
@@ -14,7 +35,7 @@ export function registerProductRoutes(app: Express) {
       const data = await storage.getProductCategories(req.auth!.tenantId!);
       res.json({ data });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -32,16 +53,57 @@ export function registerProductRoutes(app: Express) {
       });
       res.status(201).json({ data });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
   app.get("/api/products", tenantAuth, requireFeature("products"), async (req, res) => {
     try {
-      const data = await storage.getProducts(req.auth!.tenantId!);
-      res.json({ data });
+      const tenantId = req.auth!.tenantId!;
+      const branchCount = await storage.countBranchesByTenant(tenantId);
+      const hasBranches = branchCount > 0;
+      const filters = productFiltersSchema.parse(req.query);
+      const { data, total } = await queryProductsByFilters(tenantId, hasBranches, filters);
+
+      const productIds = data.map((p) => p.id);
+      const branchStockMap = new Map<number, Array<{ branchId: number; branchName: string; stock: number }>>();
+
+      if (hasBranches && productIds.length) {
+        const allStockRows = await storage.getStockSummaryByTenant(tenantId);
+        for (const row of allStockRows) {
+          if (!productIds.includes(row.productId)) continue;
+          const list = branchStockMap.get(row.productId) || [];
+          list.push({ branchId: row.branchId, branchName: row.branchName, stock: row.stock });
+          branchStockMap.set(row.productId, list);
+        }
+      }
+
+      const normalized = data.map((p) => ({
+        ...p,
+        stockTotal: toNumber(p.stockTotal),
+        branchStock: hasBranches ? (branchStockMap.get(p.id) || []) : undefined,
+      }));
+
+      const page = filters.page ?? 1;
+      const pageSize = filters.pageSize ?? 20;
+      const stockMode = hasBranches ? "by_branch" : "global";
+
+      res.json({
+        data: normalized,
+        meta: {
+          page,
+          pageSize,
+          total,
+          totalPages: Math.max(1, Math.ceil(total / pageSize)),
+          stockMode,
+        },
+        stockMode,
+      });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ error: "Filtros inválidos. Revisá los valores ingresados.", code: "PRODUCT_FILTERS_INVALID" });
+      }
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -53,17 +115,27 @@ export function registerProductRoutes(app: Express) {
     blockBranchScope,
     async (req, res) => {
     try {
+      const tenantId = req.auth!.tenantId!;
+      const branchCount = await storage.countBranchesByTenant(tenantId);
+      const hasBranches = branchCount > 0;
+      const payload = productInputSchema.parse(req.body);
+
       const data = await storage.createProduct({
-        tenantId: req.auth!.tenantId!,
-        name: req.body.name,
-        description: req.body.description || null,
-        price: String(req.body.price),
-        sku: req.body.sku || null,
-        categoryId: req.body.categoryId || null,
+        tenantId,
+        name: payload.name,
+        description: payload.description || null,
+        price: String(payload.price),
+        sku: payload.sku || null,
+        categoryId: payload.categoryId || null,
+        cost: payload.cost !== null && payload.cost !== undefined ? String(payload.cost) : null,
+        stock: hasBranches ? null : (payload.stock ?? 0),
       });
       res.status(201).json({ data });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ error: "Datos inválidos", details: err.errors });
+      }
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -73,6 +145,20 @@ export function registerProductRoutes(app: Express) {
       const productId = parseInt(req.params.id as string);
       const product = await storage.getProductById(productId, tenantId);
       if (!product) return res.status(404).json({ error: "Producto no encontrado" });
+      const branchCount = await storage.countBranchesByTenant(tenantId);
+      const hasBranches = branchCount > 0;
+
+      if (!hasBranches) {
+        return res.json({
+          data: {
+            stockByBranch: [],
+            stockTotal: product.stock || 0,
+            stockMode: "global",
+            movements: [],
+          },
+        });
+      }
+
       const [stockByBranch, branches] = await Promise.all([
         storage.getProductStockByBranch(productId, tenantId),
         storage.getBranches(tenantId),
@@ -84,9 +170,9 @@ export function registerProductRoutes(app: Express) {
         stock: stockMap.get(branch.id) ?? 0,
       }));
       const movements = await storage.getStockMovements(productId, tenantId);
-      res.json({ data: { stockByBranch: stockView, movements } });
+      res.json({ data: { stockByBranch: stockView, movements, stockMode: "by_branch" } });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -138,7 +224,7 @@ export function registerProductRoutes(app: Express) {
       const updatedStock = await storage.getProductStockByBranch(productId, tenantId);
       res.json({ data: updatedStock });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -154,20 +240,27 @@ export function registerProductRoutes(app: Express) {
       const productId = parseInt(req.params.id as string);
       const existing = await storage.getProductById(productId, tenantId);
       if (!existing) return res.status(404).json({ error: "Producto no encontrado" });
+      const branchCount = await storage.countBranchesByTenant(tenantId);
+      const hasBranches = branchCount > 0;
+
+      const payload = productUpdateSchema.parse(req.body);
 
       const updateData: any = {};
-      if (req.body.name !== undefined) updateData.name = req.body.name;
-      if (req.body.description !== undefined) updateData.description = req.body.description;
-      if (req.body.price !== undefined) updateData.price = String(req.body.price);
-      if (req.body.cost !== undefined) updateData.cost = req.body.cost !== null ? String(req.body.cost) : null;
-      if (req.body.stock !== undefined) updateData.stock = req.body.stock;
-      if (req.body.sku !== undefined) updateData.sku = req.body.sku;
-      if (req.body.categoryId !== undefined) updateData.categoryId = req.body.categoryId;
+      if (payload.name !== undefined) updateData.name = payload.name;
+      if (payload.description !== undefined) updateData.description = payload.description;
+      if (payload.price !== undefined) updateData.price = String(payload.price);
+      if (payload.cost !== undefined) updateData.cost = payload.cost !== null ? String(payload.cost) : null;
+      if (payload.stock !== undefined && !hasBranches) updateData.stock = payload.stock;
+      if (payload.sku !== undefined) updateData.sku = payload.sku;
+      if (payload.categoryId !== undefined) updateData.categoryId = payload.categoryId;
 
       const product = await storage.updateProduct(productId, tenantId, updateData);
       res.json({ data: product });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ error: "Datos inválidos", details: err.errors });
+      }
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
     }
   });
 
@@ -186,124 +279,40 @@ export function registerProductRoutes(app: Express) {
       await storage.toggleProductActive(productId, tenantId, !existing.isActive);
       res.json({ data: { isActive: !existing.isActive } });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Error interno del servidor", code: "INTERNAL_ERROR" });
+    }
+  });
+
+
+  app.delete(
+    "/api/products/:id",
+    tenantAuth,
+    requireTenantAdmin,
+    requireFeature("products"),
+    blockBranchScope,
+    async (req, res) => {
+    try {
+      const tenantId = req.auth!.tenantId!;
+      const productId = parseInt(req.params.id as string);
+      const existing = await storage.getProductById(productId, tenantId);
+      if (!existing) return res.status(404).json({ error: "Producto no encontrado", code: "PRODUCT_NOT_FOUND" });
+      await storage.toggleProductActive(productId, tenantId, false);
+      res.json({ data: { id: productId, deleted: true } });
+    } catch {
+      res.status(500).json({ error: "No se pudo eliminar el producto", code: "PRODUCT_DELETE_ERROR" });
     }
   });
 
   app.get("/api/products/export", tenantAuth, requireFeature("products"), async (req, res) => {
     try {
       const tenantId = req.auth!.tenantId!;
-      const allProducts = await storage.getProducts(tenantId);
-      const categories = await storage.getProductCategories(tenantId);
-      const catMap = new Map(categories.map((c) => [c.id, c.name]));
-      const config = await storage.getConfig(tenantId);
-
-      const pdfTemplate = (config?.configJson as any)?.pdfTemplate || {};
-      const tpl = {
-        title: pdfTemplate.title || config?.businessName || "Productos",
-        showDate: pdfTemplate.showDate !== false,
-        showLogo: pdfTemplate.showLogo !== false,
-        columns: pdfTemplate.columns || ["name", "price", "cost", "stock", "sku", "category", "active"],
-        headerColor: pdfTemplate.headerColor || "#6366f1",
-        fontSize: pdfTemplate.fontSize || 8,
-        pageSize: pdfTemplate.pageSize || "A4",
-        orientation: pdfTemplate.orientation || "portrait",
-        footerText: pdfTemplate.footerText || "",
-      };
-
-      const columnDefs: Record<string, { label: string; width: number; getValue: (p: any) => string }> = {
-        name: { label: "Nombre", width: 140, getValue: (p) => p.name || "" },
-        price: { label: "Precio", width: 65, getValue: (p) => p.price ? `$${p.price}` : "" },
-        cost: { label: "Costo", width: 65, getValue: (p) => p.cost ? `$${p.cost}` : "" },
-        stock: { label: "Stock", width: 50, getValue: (p) => p.stock?.toString() ?? "" },
-        sku: { label: "SKU", width: 70, getValue: (p) => p.sku || "" },
-        category: { label: "Categoría", width: 90, getValue: (p) => p.categoryId ? catMap.get(p.categoryId) || "" : "" },
-        active: { label: "Activo", width: 45, getValue: (p) => p.isActive ? "Si" : "No" },
-      };
-
-      const activeColumns = tpl.columns.filter((c: string) => columnDefs[c]);
-      const headers = activeColumns.map((c: string) => columnDefs[c].label);
-      const colWidths = activeColumns.map((c: string) => columnDefs[c].width);
-
-      const PDFDocument = (await import("pdfkit")).default;
-      const doc = new PDFDocument({
-        size: tpl.pageSize as any,
-        margin: 40,
-        layout: tpl.orientation === "landscape" ? "landscape" : "portrait",
-      });
-
+      const plan = await getTenantPlan(tenantId);
+      const pdfBuffer = await generatePriceListPdf(tenantId, { watermarkOrbia: (plan?.planCode || "").toUpperCase() === "ECONOMICO" });
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", "attachment; filename=productos.pdf");
-      doc.pipe(res);
-
-      if (tpl.showLogo && config?.logoUrl) {
-        try {
-          const fs = await import("fs");
-          const logoPath = `.${config.logoUrl}`;
-          if (fs.existsSync(logoPath)) {
-            doc.image(logoPath, doc.page.width / 2 - 30, doc.y, { width: 60, height: 60 });
-            doc.moveDown(4);
-          }
-        } catch {}
-      }
-
-      doc.fontSize(18).text(tpl.title, { align: "center" });
-      if (tpl.showDate) {
-        doc.fontSize(10).text(`Fecha: ${new Date().toLocaleDateString("es-AR")}`, { align: "center" });
-      }
-      doc.moveDown(1);
-
-      const tableLeft = 40;
-      let y = doc.y;
-
-      const hexToRgb = (hex: string) => {
-        const r = parseInt(hex.slice(1, 3), 16);
-        const g = parseInt(hex.slice(3, 5), 16);
-        const b = parseInt(hex.slice(5, 7), 16);
-        return [r, g, b] as [number, number, number];
-      };
-
-      const [hr, hg, hb] = hexToRgb(tpl.headerColor);
-      doc.rect(tableLeft, y - 2, colWidths.reduce((a: number, b: number) => a + b, 0), 16).fill(`rgb(${hr},${hg},${hb})`);
-      doc.fillColor("white").fontSize(tpl.fontSize).font("Helvetica-Bold");
-      let x = tableLeft;
-      headers.forEach((h: string, i: number) => {
-        doc.text(h, x + 2, y, { width: colWidths[i] - 4, align: "left" });
-        x += colWidths[i];
-      });
-      y += 18;
-
-      doc.fillColor("black").font("Helvetica").fontSize(tpl.fontSize - 1);
-      const maxY = tpl.orientation === "landscape" ? 520 : 750;
-      for (let idx = 0; idx < allProducts.length; idx++) {
-        const p = allProducts[idx];
-        if (y > maxY) {
-          doc.addPage();
-          y = 40;
-        }
-        if (idx % 2 === 0) {
-          doc.rect(tableLeft, y - 2, colWidths.reduce((a: number, b: number) => a + b, 0), 14).fill("#f8f9fa");
-          doc.fillColor("black");
-        }
-        x = tableLeft;
-        activeColumns.forEach((col: string, i: number) => {
-          const val = columnDefs[col].getValue(p);
-          doc.text(val, x + 2, y, { width: colWidths[i] - 4, align: "left" });
-          x += colWidths[i];
-        });
-        y += 14;
-      }
-
-      doc.moveDown(2);
-      doc.fontSize(tpl.fontSize).text(`Total: ${allProducts.length} productos`, { align: "right" });
-      if (tpl.footerText) {
-        doc.moveDown(1);
-        doc.fontSize(tpl.fontSize - 1).fillColor("gray").text(tpl.footerText, { align: "center" });
-      }
-
-      doc.end();
+      res.send(pdfBuffer);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "No se pudo generar el PDF", code: "PDF_EXPORT_ERROR" });
     }
   });
 }

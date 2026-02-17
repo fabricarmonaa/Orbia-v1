@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import { apiRequest, useAuth } from "@/lib/auth";
 import { usePlan } from "@/lib/plan";
-import { UpgradePrompt } from "@/components/upgrade-prompt";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -44,9 +43,13 @@ export default function BranchesPage() {
       setLocation("/app");
       return;
     }
-    if (canAccess) fetchData();
-    else setLoading(false);
-  }, [canAccess, isTenantAdmin, setLocation]);
+    if (!canAccess) {
+      toast({ title: "Plan requerido", description: "Esta función está disponible solo en el plan Escala.", variant: "destructive" });
+      setLocation("/app/settings");
+      return;
+    }
+    fetchData();
+  }, [canAccess, isTenantAdmin, setLocation, toast]);
 
   async function fetchData() {
     try {
@@ -86,15 +89,6 @@ export default function BranchesPage() {
     );
   }
 
-  if (!canAccess) {
-    return (
-      <UpgradePrompt
-        feature="branches"
-        title="Sucursales"
-        description="Gestión de sedes y puntos de atención"
-      />
-    );
-  }
 
   const atLimit = maxBranches >= 0 && branches.length >= maxBranches;
 

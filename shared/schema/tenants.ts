@@ -17,8 +17,10 @@ export const tenants = pgTable("tenants", {
   slug: varchar("slug", { length: 100 }).unique(),
   planId: integer("plan_id").references(() => plans.id),
   isActive: boolean("is_active").notNull().default(true),
+  isBlocked: boolean("is_blocked").notNull().default(false),
   subscriptionStartDate: timestamp("subscription_start_date"),
   subscriptionEndDate: timestamp("subscription_end_date"),
+  deletedAt: timestamp("deleted_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

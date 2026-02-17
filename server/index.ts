@@ -5,6 +5,7 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 import { securityHeaders } from "./middleware/security-headers";
 import { corsGuard } from "./middleware/cors";
+import { HttpError } from "./lib/http-errors";
 
 const app = express();
 const httpServer = createServer(app);
@@ -56,7 +57,7 @@ app.use((req, res, next) => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
+      if (capturedJsonResponse && process.env.NODE_ENV !== "production") {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }
 
@@ -79,17 +80,36 @@ app.use((req, res, next) => {
 
   await registerRoutes(httpServer, app);
 
-  app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
-    const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
+  app.get("/api/health", (_req, res) => {
+    return res.json({ ok: true, code: "API_HEALTHY" });
+  });
 
-    console.error("Internal Server Error:", err);
+  app.use("/api/{*path}", (_req, res) => {
+    return res.status(404).json({ error: "Endpoint no encontrado", code: "API_NOT_FOUND" });
+  });
+
+
+  app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
+    const isHttpError = err instanceof HttpError;
+    const status = isHttpError ? err.status : (err.status || err.statusCode || 500);
+    const code = isHttpError
+      ? err.code
+      : (err.code || (status === 401 ? "AUTH_REQUIRED" : status === 403 ? "FORBIDDEN" : "INTERNAL_ERROR"));
+    const message = status >= 500 ? "Error interno del servidor" : err.message || "Solicitud inválida";
+
+    if (process.env.NODE_ENV !== "production") {
+      console.error("Internal Server Error:", err);
+    }
 
     if (res.headersSent) {
       return next(err);
     }
 
-    return res.status(status).json({ message });
+    const payload: Record<string, unknown> = { error: message, code };
+    if (isHttpError && err.extra) {
+      Object.assign(payload, err.extra);
+    }
+    return res.status(status).json(payload);
   });
 
   // importantly only setup vite in development and after
@@ -104,7 +124,7 @@ app.use((req, res, next) => {
 
   // Tracking purge job: revoke expired tracking links every 5 minutes
   const { storage } = await import("./storage");
-  setInterval(async () => {
+  const purgeInterval = setInterval(async () => {
     try {
       const purged = await storage.purgeExpiredTracking();
       if (purged > 0) {
@@ -116,6 +136,16 @@ app.use((req, res, next) => {
   }, 5 * 60 * 1000);
 
   // Railway compatibility: use PORT env var, bind to 0.0.0.0
+  process.on("SIGTERM", () => {
+    clearInterval(purgeInterval);
+    httpServer.close(() => process.exit(0));
+  });
+
+  process.on("SIGINT", () => {
+    clearInterval(purgeInterval);
+    httpServer.close(() => process.exit(0));
+  });
+
   const PORT = parseInt(process.env.PORT || "5000");
 
   httpServer.listen(PORT, "0.0.0.0", () => {

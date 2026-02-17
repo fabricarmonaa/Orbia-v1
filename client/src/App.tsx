@@ -13,6 +13,8 @@ import AppLayout from "@/pages/app/layout";
 import PublicTracking from "@/pages/public-tracking";
 import DeliveryLogin from "@/pages/delivery-login";
 import DeliveryPanel from "@/pages/delivery-panel";
+import { SessionLifecycleManager } from "@/components/session-lifecycle-manager";
+import { PwaRuntime } from "@/components/pwa-runtime";
 
 function Router() {
   return (
@@ -39,6 +41,8 @@ function App() {
         <ThemeProvider>
           <BrandingProvider>
             <Toaster />
+            <SessionLifecycleManager />
+            <PwaRuntime />
             <Router />
           </BrandingProvider>
         </ThemeProvider>

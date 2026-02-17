@@ -24,3 +24,7 @@ venv/
 # Railway / Replit
 .replit
 .replit.nix
+
+# Local branding binaries (keep out of PRs)
+client/public/icons/**/*.png
+client/public/icons/**/*.ico

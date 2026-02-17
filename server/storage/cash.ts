@@ -1,6 +1,13 @@
 import { db } from "../db";
 import { eq, and, desc, sql } from "drizzle-orm";
-import { cashSessions, cashMovements, type InsertCashSession, type InsertCashMovement } from "@shared/schema";
+import {
+  cashSessions,
+  cashMovements,
+  tenantMonthlySummaries,
+  type InsertCashSession,
+  type InsertCashMovement,
+  type InsertTenantMonthlySummary,
+} from "@shared/schema";
 
 export const cashStorage = {
   async getCashSessions(tenantId: number) {
@@ -146,6 +153,52 @@ export const cashStorage = {
       .from(cashMovements)
       .where(and(eq(cashMovements.tenantId, tenantId), eq(cashMovements.branchId, branchId)))
       .orderBy(desc(cashMovements.createdAt));
+  },
+
+  async getTenantMonthlySummary(tenantId: number, year: number, month: number) {
+    const [summary] = await db
+      .select()
+      .from(tenantMonthlySummaries)
+      .where(
+        and(
+          eq(tenantMonthlySummaries.tenantId, tenantId),
+          eq(tenantMonthlySummaries.year, year),
+          eq(tenantMonthlySummaries.month, month)
+        )
+      );
+    return summary;
+  },
+
+  async upsertTenantMonthlySummary(data: InsertTenantMonthlySummary) {
+    const [existing] = await db
+      .select()
+      .from(tenantMonthlySummaries)
+      .where(
+        and(
+          eq(tenantMonthlySummaries.tenantId, data.tenantId),
+          eq(tenantMonthlySummaries.year, data.year),
+          eq(tenantMonthlySummaries.month, data.month)
+        )
+      );
+    if (existing) {
+      const [updated] = await db
+        .update(tenantMonthlySummaries)
+        .set({ totalsJson: data.totalsJson, createdAt: new Date() })
+        .where(eq(tenantMonthlySummaries.id, existing.id))
+        .returning();
+      return updated;
+    }
+    const insertData: typeof tenantMonthlySummaries.$inferInsert = {
+      tenantId: data.tenantId,
+      year: data.year,
+      month: data.month,
+      totalsJson: data.totalsJson,
+    };
+    const [created] = await db
+      .insert(tenantMonthlySummaries)
+      .values(insertData)
+      .returning();
+    return created;
   },
 
   async getExpensesBreakdown(tenantId: number, dateFrom: Date, dateTo: Date) {

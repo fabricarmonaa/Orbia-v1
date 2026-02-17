@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { apiRequest } from "@/lib/auth";
 import type { PlanInfo } from "@/lib/plan";
+import { useToast } from "@/hooks/use-toast";
 
 const featureLabels: Record<string, string> = {
   orders: "Pedidos / Servicios",
@@ -28,13 +29,30 @@ const limitLabels: Record<string, string> = {
 
 export function BillingSettings({ plan }: { plan: PlanInfo | null }) {
   const [addons, setAddons] = useState<Record<string, boolean>>({});
+  const [tenantCode, setTenantCode] = useState<string>("");
+  const { toast } = useToast();
 
   useEffect(() => {
     apiRequest("GET", "/api/addons/status")
       .then((res) => res.json())
       .then((data) => setAddons(data.data || {}))
       .catch(() => setAddons({}));
+
+    apiRequest("GET", "/api/tenant/info")
+      .then((res) => res.json())
+      .then((data) => setTenantCode(data?.data?.code || ""))
+      .catch(() => setTenantCode(""));
   }, []);
+
+  function openUpgradeWhatsApp() {
+    if (!tenantCode) {
+      toast({ title: "No se pudo obtener el código de negocio", variant: "destructive" });
+      return;
+    }
+    const text = `Hola! Mi código de negocio es ${tenantCode} y quiero mejorar mi plan`;
+    const url = `https://wa.me/5492236979026?text=${encodeURIComponent(text)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
 
   return (
     <Card>
@@ -47,16 +65,12 @@ export function BillingSettings({ plan }: { plan: PlanInfo | null }) {
           <>
             <div className="flex items-center gap-2">
               <Badge variant="default">{plan.name}</Badge>
-              <Button variant="outline" size="sm" asChild>
-                <a href="mailto:ventas@orbia.app?subject=Mejorar%20plan" rel="noreferrer">
-                  Mejorar plan
-                </a>
+              <Button variant="outline" size="sm" onClick={openUpgradeWhatsApp}>
+                Mejorar plan
               </Button>
             </div>
             <div className="space-y-2">
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                Funcionalidades
-              </p>
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Funcionalidades</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
                 {Object.entries(plan.features || {}).map(([key, val]) => (
                   <div key={key} className="flex items-center justify-between gap-2">
@@ -68,9 +82,7 @@ export function BillingSettings({ plan }: { plan: PlanInfo | null }) {
             </div>
             {plan.limits && Object.keys(plan.limits).length > 0 && (
               <div className="space-y-2">
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                  Límites
-                </p>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Límites</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
                   {Object.entries(plan.limits).map(([key, val]) => (
                     <div key={key} className="flex items-center justify-between gap-2">
@@ -82,19 +94,13 @@ export function BillingSettings({ plan }: { plan: PlanInfo | null }) {
               </div>
             )}
             <div className="space-y-2">
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                Addons activos
-              </p>
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Addons activos</p>
               <div className="flex flex-wrap gap-2 text-sm">
-                {Object.keys(addons).length === 0 && (
-                  <span className="text-muted-foreground">Sin addons activos</span>
-                )}
+                {Object.keys(addons).length === 0 && <span className="text-muted-foreground">Sin addons activos</span>}
                 {Object.entries(addons)
                   .filter(([, enabled]) => enabled)
                   .map(([addon]) => (
-                    <Badge key={addon} variant="secondary">
-                      {addon}
-                    </Badge>
+                    <Badge key={addon} variant="secondary">{addon}</Badge>
                   ))}
               </div>
             </div>
